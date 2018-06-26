@@ -295,6 +295,14 @@ static int rt5514_dsp_voice_wake_up_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt5514_dsp_stream_flag_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = rt5514_stream_flag;
+
+	return 0;
+}
+
 static int rt5514_calibration(struct rt5514_priv *rt5514, bool on)
 {
 	if (on) {
@@ -398,7 +406,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 				int ret;
 
-				ret = rt5514_spi_burst_write(0x4ff80000,
+				ret = rt5514_spi_burst_write(0x4ffae000,
 					rt5514->model_buf,
 					((rt5514->model_len / 8) + 1) * 8);
 				if (ret) {
@@ -415,7 +423,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 						 codec->dev);
 				if (fw) {
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
-					rt5514_spi_burst_write(0x4ff80000,
+					rt5514_spi_burst_write(0x4ffae000,
 						fw->data,
 						((fw->size/8)+1)*8);
 #else
@@ -495,6 +503,8 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_dsp_voice_wake_up_get, rt5514_dsp_voice_wake_up_put),
 	SND_SOC_BYTES_TLV("Hotword Model", 0x8504,
 		NULL, rt5514_hotword_model_put),
+	SOC_SINGLE_EXT("DSP Stream Flag", SND_SOC_NOPM, 0, 2, 0,
+		rt5514_dsp_stream_flag_get, NULL),
 };
 
 /* ADC Mixer*/

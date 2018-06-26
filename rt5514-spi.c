@@ -36,13 +36,15 @@
 #include "rt5514-spi.h"
 
 static struct spi_device *rt5514_spi;
+unsigned int rt5514_stream_flag = RT5514_DSP_NO_STREAM;
+EXPORT_SYMBOL_GPL(rt5514_stream_flag);
 
 struct rt5514_dsp {
 	struct device *dev;
 	struct delayed_work copy_work;
 	struct mutex dma_lock;
 	struct snd_pcm_substream *substream;
-	unsigned int buf_base, buf_limit, buf_rp;
+	unsigned int buf_base, buf_limit, buf_rp, buf_rp_addr;
 	size_t buf_size, get_size, dma_offset;
 };
 
@@ -90,8 +92,12 @@ static void rt5514_spi_copy_work(struct work_struct *work)
 	runtime = rt5514_dsp->substream->runtime;
 	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream);
 
+	if (rt5514_dsp->buf_size % period_bytes)
+		rt5514_dsp->buf_size = (rt5514_dsp->buf_size / period_bytes) *
+			period_bytes;
+
 	if (rt5514_dsp->get_size >= rt5514_dsp->buf_size) {
-		rt5514_spi_burst_read(RT5514_BUFFER_VOICE_WP, (u8 *)&buf,
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr, (u8 *)&buf,
 			sizeof(buf));
 		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 |
 					buf[3] << 24;
@@ -147,32 +153,50 @@ done:
 
 static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 {
-	size_t period_bytes;
 	u8 buf[8];
+	unsigned int base_addr, limit_addr;
+	unsigned int hotword_flag, musdet_flag;
 
-	if (!rt5514_dsp->substream)
+	if (!rt5514_dsp->substream || rt5514_stream_flag)
 		return;
 
-	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream);
 	rt5514_dsp->get_size = 0;
+
+	rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
+	hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
+		buf[3] << 24;
+
+	rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf, sizeof(buf));
+	musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+	if (hotword_flag == 1) {
+		rt5514_stream_flag = RT5514_DSP_STREAM_HOTWORD;
+		base_addr = RT5514_BUFFER_VOICE_BASE;
+		limit_addr = RT5514_BUFFER_VOICE_LIMIT;
+		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_VOICE_WP;
+	} else if (musdet_flag == 1) {
+		rt5514_stream_flag = RT5514_DSP_STREAM_MUSDET;
+		base_addr = RT5514_BUFFER_MUSIC_BASE;
+		limit_addr = RT5514_BUFFER_MUSIC_LIMIT;
+		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_MUSIC_WP;
+	} else {
+		return;
+	}
 
 	/**
 	 * The address area x1800XXXX is the register address, and it cannot
 	 * support spi burst read perfectly. So we use the spi burst read
 	 * individually to make sure the data correctly.
 	 */
-	rt5514_spi_burst_read(RT5514_BUFFER_VOICE_BASE, (u8 *)&buf,
-		sizeof(buf));
+	rt5514_spi_burst_read(base_addr, (u8 *)&buf, sizeof(buf));
 	rt5514_dsp->buf_base = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
 
-	rt5514_spi_burst_read(RT5514_BUFFER_VOICE_LIMIT, (u8 *)&buf,
-		sizeof(buf));
+	rt5514_spi_burst_read(limit_addr, (u8 *)&buf, sizeof(buf));
 	rt5514_dsp->buf_limit = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
 
-	rt5514_spi_burst_read(RT5514_BUFFER_VOICE_WP, (u8 *)&buf,
-		sizeof(buf));
+	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr, (u8 *)&buf, sizeof(buf));
 	rt5514_dsp->buf_rp = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
 
@@ -180,10 +204,6 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 		rt5514_dsp->buf_rp = (rt5514_dsp->buf_rp / 8) * 8;
 
 	rt5514_dsp->buf_size = rt5514_dsp->buf_limit - rt5514_dsp->buf_base;
-
-	if (rt5514_dsp->buf_size % period_bytes)
-		rt5514_dsp->buf_size = (rt5514_dsp->buf_size / period_bytes) *
-			period_bytes;
 
 	if (rt5514_dsp->buf_base && rt5514_dsp->buf_limit &&
 		rt5514_dsp->buf_rp && rt5514_dsp->buf_size)
@@ -215,6 +235,7 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 			snd_soc_platform_get_drvdata(rtd->platform);
 	int ret;
 	u8 buf[8];
+	unsigned int hotword_flag, musdet_flag;
 
 	mutex_lock(&rt5514_dsp->dma_lock);
 	ret = snd_pcm_lib_alloc_vmalloc_buffer(substream,
@@ -223,8 +244,13 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 	rt5514_dsp->dma_offset = 0;
 
 	/* Read IRQ status and schedule copy accordingly. */
-	rt5514_spi_burst_read(RT5514_IRQ_CTRL, (u8 *)&buf, sizeof(buf));
-	if (buf[0] & RT5514_IRQ_STATUS_BIT)
+	rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
+	hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+	rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf, sizeof(buf));
+	musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+	if (hotword_flag | musdet_flag)
 		rt5514_schedule_copy(rt5514_dsp);
 
 	mutex_unlock(&rt5514_dsp->dma_lock);
@@ -237,12 +263,17 @@ static int rt5514_spi_hw_free(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct rt5514_dsp *rt5514_dsp =
 			snd_soc_platform_get_drvdata(rtd->platform);
+	char buf[8] = {0};
 
 	mutex_lock(&rt5514_dsp->dma_lock);
 	rt5514_dsp->substream = NULL;
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
 	cancel_delayed_work_sync(&rt5514_dsp->copy_work);
+
+	rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
+	rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
+	rt5514_stream_flag = RT5514_DSP_NO_STREAM;
 
 	return snd_pcm_lib_free_vmalloc_buffer(substream);
 }
@@ -479,15 +510,24 @@ static int rt5514_resume(struct device *dev)
 		snd_soc_platform_get_drvdata(platform);
 	int irq = to_spi_device(dev)->irq;
 	u8 buf[8];
+	unsigned int hotword_flag, musdet_flag;
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(irq);
 
 	if (rt5514_dsp) {
 		if (rt5514_dsp->substream) {
-			rt5514_spi_burst_read(RT5514_IRQ_CTRL, (u8 *)&buf,
+			rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf,
 				sizeof(buf));
-			if (buf[0] & RT5514_IRQ_STATUS_BIT)
+			hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
+				buf[3] << 24;
+
+			rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf,
+				sizeof(buf));
+			musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
+				buf[3] << 24;
+
+			if (hotword_flag | musdet_flag)
 				rt5514_schedule_copy(rt5514_dsp);
 		}
 	}
