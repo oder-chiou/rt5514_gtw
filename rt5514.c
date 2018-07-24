@@ -346,7 +346,8 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
 		if (rt5514->dsp_enabled) {
-			if (!IS_ERR(rt5514->dsp_calib_clk)) {
+			if (!IS_ERR(rt5514->dsp_calib_clk) &&
+				rt5514->pdata.dsp_calib_clk_name) {
 				if (clk_set_rate(rt5514->dsp_calib_clk,
 					rt5514->pdata.dsp_calib_clk_rate))
 					dev_err(codec->dev,
@@ -439,7 +440,8 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 			regmap_write(rt5514->i2c_regmap, 0x18002f00,
 				0x00055148);
 
-			if (!IS_ERR(rt5514->dsp_calib_clk)) {
+			if (!IS_ERR(rt5514->dsp_calib_clk) &&
+				rt5514->pdata.dsp_calib_clk_name) {
 				msleep(20);
 
 				regmap_write(rt5514->i2c_regmap, 0x1800211c,
