@@ -36,25 +36,28 @@
 #endif
 
 static const struct reg_sequence rt5514_i2c_patch[] = {
-	{0x1800101c, 0x00000000},
+	{0xfafafafa, 0x00000001},
+	{0x18002000, 0x000010ec},
+	{0xfafafafa, 0x00000001},
+	{0x18002004, 0x00808f81},
+	{0xfafafafa, 0x00000001},
+	{0x18002008, 0x00770000},
+	{0xfafafafa, 0x00000001},
+	{0x18002f08, 0x00000006},
+	{0xfafafafa, 0x00000001},
+	{0x18002f10, 0x00000000},
+	{0xfafafafa, 0x00000001},
+	{0x18002f10, 0x00000001},
+	{0xfafafafa, 0x00000000},
 	{0x18001100, 0x0000031f},
 	{0x18001104, 0x00000007},
 	{0x18001108, 0x00000000},
 	{0x1800110c, 0x00000000},
 	{0x18001110, 0x00000000},
-	{0x18001114, 0x00000001},
+	{0x18001114, 0x00000000},
 	{0x18001118, 0x00000000},
-	{0x18002f08, 0x00000006},
-	{0x18002f00, 0x00055149},
-	{0x18002f00, 0x0005514b},
-	{0x18002f00, 0x00055149},
-	{0xfafafafa, 0x00000001},
-	{0x18002f10, 0x00000001},
-	{0x18002f10, 0x00000000},
-	{0x18002f10, 0x00000001},
-	{0xfafafafa, 0x00000001},
+	{0x1800111c, 0x00000000},
 	{0x18002000, 0x000010ec},
-	{0xfafafafa, 0x00000000},
 };
 
 static const struct reg_sequence rt5514_patch[] = {
@@ -149,6 +152,14 @@ static void rt5514_enable_dsp_prepare(struct rt5514_priv *rt5514)
 static bool rt5514_volatile_register(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
+	case 0x1100:
+	case 0x1104:
+	case 0x1108:
+	case 0x110c:
+	case 0x1110:
+	case 0x1114:
+	case 0x1118:
+	case 0x111c:
 	case RT5514_VENDOR_ID1:
 	case RT5514_VENDOR_ID2:
 		return true;
@@ -161,6 +172,14 @@ static bool rt5514_volatile_register(struct device *dev, unsigned int reg)
 static bool rt5514_readable_register(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
+	case 0x1100:
+	case 0x1104:
+	case 0x1108:
+	case 0x110c:
+	case 0x1110:
+	case 0x1114:
+	case 0x1118:
+	case 0x111c:
 	case RT5514_RESET:
 	case RT5514_PWR_ANA1:
 	case RT5514_PWR_ANA2:
@@ -218,6 +237,14 @@ static bool rt5514_i2c_readable_register(struct device *dev,
 	unsigned int reg)
 {
 	switch (reg) {
+	case RT5514_DSP_MAPPING | 0x1100:
+	case RT5514_DSP_MAPPING | 0x1104:
+	case RT5514_DSP_MAPPING | 0x1108:
+	case RT5514_DSP_MAPPING | 0x110c:
+	case RT5514_DSP_MAPPING | 0x1110:
+	case RT5514_DSP_MAPPING | 0x1114:
+	case RT5514_DSP_MAPPING | 0x1118:
+	case RT5514_DSP_MAPPING | 0x111c:
 	case RT5514_DSP_MAPPING | RT5514_RESET:
 	case RT5514_DSP_MAPPING | RT5514_PWR_ANA1:
 	case RT5514_DSP_MAPPING | RT5514_PWR_ANA2:
@@ -1298,7 +1325,7 @@ static int rt5514_i2c_probe(struct i2c_client *i2c,
 {
 	struct rt5514_platform_data *pdata = dev_get_platdata(&i2c->dev);
 	struct rt5514_priv *rt5514;
-	int ret;
+	int ret, i;
 	unsigned int val = ~0;
 
 	rt5514 = devm_kzalloc(&i2c->dev, sizeof(struct rt5514_priv),
@@ -1335,13 +1362,25 @@ static int rt5514_i2c_probe(struct i2c_client *i2c,
 	 * in this glitched state the first i2c read will fail, so we'll give
 	 * it one change to retry.
 	 */
-	ret = regmap_read(rt5514->regmap, RT5514_VENDOR_ID2, &val);
-	if (ret || val != RT5514_DEVICE_ID)
+	for (i = 0; i < 3; i++) {
 		ret = regmap_read(rt5514->regmap, RT5514_VENDOR_ID2, &val);
-	if (ret || val != RT5514_DEVICE_ID) {
-		dev_err(&i2c->dev,
-			"Device with ID register %x is not rt5514\n", val);
-		return -ENODEV;
+		if (ret || val != RT5514_DEVICE_ID) {
+			dev_err(&i2c->dev, "Device with ID register %x is not rt5514, reset (%d)\n",
+				val, i);
+			regmap_multi_reg_write(rt5514->i2c_regmap,
+				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+		} else {
+			break;
+		}
+	}
+
+	if (i == 3) {
+		ret = regmap_read(rt5514->regmap, RT5514_VENDOR_ID2, &val);
+		if (ret || val != RT5514_DEVICE_ID) {
+			dev_err(&i2c->dev, "Device with ID register %x is not rt5514\n",
+				val);
+			return -ENODEV;
+		}
 	}
 
 	ret = regmap_multi_reg_write(rt5514->i2c_regmap, rt5514_i2c_patch,
