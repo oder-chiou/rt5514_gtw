@@ -1369,6 +1369,7 @@ static int rt5514_i2c_probe(struct i2c_client *i2c,
 				val, i);
 			regmap_multi_reg_write(rt5514->i2c_regmap,
 				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+			msleep(20);
 		} else {
 			break;
 		}
