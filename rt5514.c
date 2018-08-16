@@ -303,6 +303,25 @@ static int rt5514_dsp_stream_flag_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt5514_dsp_frame_flag_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	u8 buf[8];
+	unsigned int addr1, addr2;
+
+	rt5514_spi_burst_read(RT5514_BUFFER_MUSIC_WP, (u8 *)&buf, sizeof(buf));
+	addr1 = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+	msleep(20);
+
+	rt5514_spi_burst_read(RT5514_BUFFER_MUSIC_WP, (u8 *)&buf, sizeof(buf));
+	addr2 = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+	ucontrol->value.integer.value[0] = (addr1 != addr2);
+
+	return 0;
+}
+
 static int rt5514_calibration(struct rt5514_priv *rt5514, bool on)
 {
 	if (on) {
@@ -507,6 +526,8 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		NULL, rt5514_hotword_model_put),
 	SOC_SINGLE_EXT("DSP Stream Flag", SND_SOC_NOPM, 0, 2, 0,
 		rt5514_dsp_stream_flag_get, NULL),
+	SOC_SINGLE_EXT("DSP Frame Flag", SND_SOC_NOPM, 0, 1, 0,
+		rt5514_dsp_frame_flag_get, NULL),
 };
 
 /* ADC Mixer*/
