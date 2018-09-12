@@ -41,11 +41,12 @@ EXPORT_SYMBOL_GPL(rt5514_stream_flag);
 
 struct rt5514_dsp {
 	struct device *dev;
-	struct delayed_work copy_work;
-	struct mutex dma_lock;
+	struct delayed_work copy_work, start_work;
+	struct mutex dma_lock, suspend_lock;
 	struct snd_pcm_substream *substream;
 	unsigned int buf_base, buf_limit, buf_rp, buf_rp_addr;
 	size_t buf_size, get_size, dma_offset;
+	bool suspended;
 };
 
 static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
@@ -110,7 +111,8 @@ static void rt5514_spi_copy_work(struct work_struct *work)
 				(cur_wp - rt5514_dsp->buf_base);
 
 		if (remain_data < period_bytes) {
-			schedule_delayed_work(&rt5514_dsp->copy_work, 5);
+			schedule_delayed_work(&rt5514_dsp->copy_work,
+				msecs_to_jiffies(50));
 			goto done;
 		}
 	}
@@ -145,7 +147,7 @@ static void rt5514_spi_copy_work(struct work_struct *work)
 
 	snd_pcm_period_elapsed(rt5514_dsp->substream);
 
-	schedule_delayed_work(&rt5514_dsp->copy_work, 5);
+	schedule_delayed_work(&rt5514_dsp->copy_work, msecs_to_jiffies(10));
 
 done:
 	mutex_unlock(&rt5514_dsp->dma_lock);
@@ -207,14 +209,33 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 
 	if (rt5514_dsp->buf_base && rt5514_dsp->buf_limit &&
 		rt5514_dsp->buf_rp && rt5514_dsp->buf_size)
-		schedule_delayed_work(&rt5514_dsp->copy_work, 0);
+		schedule_delayed_work(&rt5514_dsp->copy_work,
+			msecs_to_jiffies(0));
+}
+
+static void rt5514_spi_start_work(struct work_struct *work) {
+	struct rt5514_dsp *rt5514_dsp =
+		container_of(work, struct rt5514_dsp, start_work.work);
+	bool is_delay = false;
+
+	if (rt5514_dsp->suspended)
+		is_delay = true;
+
+	mutex_lock(&rt5514_dsp->suspend_lock);
+	mutex_unlock(&rt5514_dsp->suspend_lock);
+
+	if (is_delay)
+		msleep(1000);
+
+	rt5514_schedule_copy(rt5514_dsp);
 }
 
 static irqreturn_t rt5514_spi_irq(int irq, void *data)
 {
 	struct rt5514_dsp *rt5514_dsp = data;
 
-	rt5514_schedule_copy(rt5514_dsp);
+	pm_wakeup_event(rt5514_dsp->dev, 5000);
+	schedule_delayed_work(&rt5514_dsp->start_work, msecs_to_jiffies(0));
 
 	return IRQ_HANDLED;
 }
@@ -270,6 +291,7 @@ static int rt5514_spi_hw_free(struct snd_pcm_substream *substream)
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
 	cancel_delayed_work_sync(&rt5514_dsp->copy_work);
+	cancel_delayed_work_sync(&rt5514_dsp->start_work);
 
 	rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
 	rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
@@ -308,7 +330,9 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 
 	rt5514_dsp->dev = &rt5514_spi->dev;
 	mutex_init(&rt5514_dsp->dma_lock);
+	mutex_init(&rt5514_dsp->suspend_lock);
 	INIT_DELAYED_WORK(&rt5514_dsp->copy_work, rt5514_spi_copy_work);
+	INIT_DELAYED_WORK(&rt5514_dsp->start_work, rt5514_spi_start_work);
 	snd_soc_platform_set_drvdata(platform, rt5514_dsp);
 
 	if (rt5514_spi->irq) {
@@ -495,10 +519,16 @@ static int rt5514_spi_probe(struct spi_device *spi)
 
 static int rt5514_suspend(struct device *dev)
 {
+	struct snd_soc_platform *platform = snd_soc_lookup_platform(dev);
+	struct rt5514_dsp *rt5514_dsp =
+		snd_soc_platform_get_drvdata(platform);
 	int irq = to_spi_device(dev)->irq;
 
 	if (device_may_wakeup(dev))
 		enable_irq_wake(irq);
+
+	mutex_lock(&rt5514_dsp->suspend_lock);
+	rt5514_dsp->suspended = true;
 
 	return 0;
 }
@@ -509,28 +539,12 @@ static int rt5514_resume(struct device *dev)
 	struct rt5514_dsp *rt5514_dsp =
 		snd_soc_platform_get_drvdata(platform);
 	int irq = to_spi_device(dev)->irq;
-	u8 buf[8];
-	unsigned int hotword_flag, musdet_flag;
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(irq);
 
-	if (rt5514_dsp) {
-		if (rt5514_dsp->substream) {
-			rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf,
-				sizeof(buf));
-			hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
-				buf[3] << 24;
-
-			rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf,
-				sizeof(buf));
-			musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
-				buf[3] << 24;
-
-			if (hotword_flag | musdet_flag)
-				rt5514_schedule_copy(rt5514_dsp);
-		}
-	}
+	mutex_unlock(&rt5514_dsp->suspend_lock);
+	rt5514_dsp->suspended = false;
 
 	return 0;
 }
