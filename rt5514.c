@@ -55,6 +55,7 @@ static const struct reg_sequence rt5514_i2c_patch[] = {
 	{0xfafafafa, 0x00000001},
 	{0x18002000, 0x000010ec},
 	{0xfafafafa, 0x00000000},
+	{0x18001044, 0x00000000},
 };
 
 static const struct reg_sequence rt5514_patch[] = {
@@ -307,17 +308,13 @@ static int rt5514_dsp_frame_flag_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	u8 buf[8];
-	unsigned int addr1, addr2;
+	unsigned int value;
 
 	rt5514_spi_burst_read(RT5514_BUFFER_MUSIC_WP, (u8 *)&buf, sizeof(buf));
-	addr1 = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+	value = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+	value &= 0xfff00000;
 
-	msleep(20);
-
-	rt5514_spi_burst_read(RT5514_BUFFER_MUSIC_WP, (u8 *)&buf, sizeof(buf));
-	addr2 = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-
-	ucontrol->value.integer.value[0] = (addr1 != addr2);
+	ucontrol->value.integer.value[0] = (value == 0x4ff00000);
 
 	return 0;
 }
