@@ -216,18 +216,15 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 static void rt5514_spi_start_work(struct work_struct *work) {
 	struct rt5514_dsp *rt5514_dsp =
 		container_of(work, struct rt5514_dsp, start_work.work);
-	bool is_delay = false;
-
-	if (rt5514_dsp->suspended)
-		is_delay = true;
+	struct snd_card *card = rt5514_dsp->substream->pcm->card;
 
 	mutex_lock(&rt5514_dsp->suspend_lock);
 	mutex_unlock(&rt5514_dsp->suspend_lock);
 
-	if (is_delay)
-		msleep(1000);
-
-	rt5514_schedule_copy(rt5514_dsp);
+	snd_power_lock(card);
+	if (!snd_power_wait(card, SNDRV_CTL_POWER_D0))
+		rt5514_schedule_copy(rt5514_dsp);
+	snd_power_unlock(card);
 }
 
 static irqreturn_t rt5514_spi_irq(int irq, void *data)
