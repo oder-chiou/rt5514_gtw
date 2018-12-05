@@ -215,63 +215,6 @@ static bool rt5514_readable_register(struct device *dev, unsigned int reg)
 	}
 }
 
-static bool rt5514_i2c_readable_register(struct device *dev,
-	unsigned int reg)
-{
-	switch (reg) {
-	case RT5514_DSP_MAPPING | RT5514_RESET:
-	case RT5514_DSP_MAPPING | RT5514_PWR_ANA1:
-	case RT5514_DSP_MAPPING | RT5514_PWR_ANA2:
-	case RT5514_DSP_MAPPING | RT5514_I2S_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_I2S_CTRL2:
-	case RT5514_DSP_MAPPING | RT5514_VAD_CTRL6:
-	case RT5514_DSP_MAPPING | RT5514_EXT_VAD_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_DIG_IO_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_PAD_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_DMIC_DATA_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_DIG_SOURCE_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_SRC_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER2_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_PLL_SOURCE_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_CLK_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_CLK_CTRL2:
-	case RT5514_DSP_MAPPING | RT5514_PLL3_CALIB_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_PLL3_CALIB_CTRL5:
-	case RT5514_DSP_MAPPING | RT5514_DELAY_BUF_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_DELAY_BUF_CTRL3:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER0_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER0_CTRL2:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER0_CTRL3:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER1_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER1_CTRL2:
-	case RT5514_DSP_MAPPING | RT5514_DOWNFILTER1_CTRL3:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_LDO10:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_LDO18_16:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_ADC12:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_ADC21:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_ADC22:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_ADC23:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_MICBST:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_ADCFED:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_INBUF:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_VREF:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL3:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL1_1:
-	case RT5514_DSP_MAPPING | RT5514_ANA_CTRL_PLL1_2:
-	case RT5514_DSP_MAPPING | RT5514_DMIC_LP_CTRL:
-	case RT5514_DSP_MAPPING | RT5514_MISC_CTRL_DSP:
-	case RT5514_DSP_MAPPING | RT5514_DSP_CTRL1:
-	case RT5514_DSP_MAPPING | RT5514_DSP_CTRL3:
-	case RT5514_DSP_MAPPING | RT5514_DSP_CTRL4:
-	case RT5514_DSP_MAPPING | RT5514_VENDOR_ID1:
-	case RT5514_DSP_MAPPING | RT5514_VENDOR_ID2:
-		return true;
-
-	default:
-		return false;
-	}
-}
-
 /* {-3, 0, +3, +4.5, +7.5, +9.5, +12, +14, +17} dB */
 static const DECLARE_TLV_DB_RANGE(bst_tlv,
 	0, 2, TLV_DB_SCALE_ITEM(-300, 300, 0),
@@ -333,14 +276,27 @@ static int rt5514_dsp_stream_flag_put(struct snd_kcontrol *kcontrol,
 static int rt5514_dsp_frame_flag_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 	u8 buf[8];
-	unsigned int value;
+	unsigned int value_spi, value_i2c;
 
 	rt5514_spi_burst_read(RT5514_BUFFER_MUSIC_WP, (u8 *)&buf, sizeof(buf));
-	value = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-	value &= 0xfff00000;
+	value_spi = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+	if ((value_spi & 0xfff00000) != 0x4ff00000) {
+		ucontrol->value.integer.value[0] = 0;
+		return 0;
+	}
 
-	ucontrol->value.integer.value[0] = (value == 0x4ff00000);
+	msleep(20);
+
+	regmap_read(rt5514->i2c_regmap, RT5514_BUFFER_MUSIC_WP, &value_i2c);
+	if ((value_i2c & 0xfff00000) != 0x4ff00000) {
+		ucontrol->value.integer.value[0] = 0;
+		return 0;
+	}
+
+	ucontrol->value.integer.value[0] = !!(value_spi - value_i2c);
 
 	return 0;
 }
@@ -1365,8 +1321,6 @@ static const struct regmap_config rt5514_i2c_regmap = {
 	.name = "i2c",
 	.reg_bits = 32,
 	.val_bits = 32,
-
-	.readable_reg = rt5514_i2c_readable_register,
 
 	.cache_type = REGCACHE_NONE,
 };
