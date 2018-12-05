@@ -212,6 +212,9 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 	if ((rt5514_dsp->buf_limit & 0xfff00000) != 0x4ff00000)
 		return;
 
+	if (rt5514_dsp->buf_limit % 8)
+		rt5514_dsp->buf_limit = ((rt5514_dsp->buf_limit / 8) + 1) * 8;
+
 	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr, (u8 *)&buf, sizeof(buf));
 	rt5514_dsp->buf_rp = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
