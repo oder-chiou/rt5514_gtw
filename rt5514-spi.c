@@ -45,6 +45,7 @@ struct rt5514_dsp {
 	struct mutex dma_lock, suspend_lock;
 	struct snd_pcm_substream *substream;
 	unsigned int buf_base, buf_limit, buf_rp, buf_rp_addr;
+	unsigned int hotword_ignore_ms, musdet_ignore_ms;
 	size_t buf_size, get_size, dma_offset;
 	bool suspended;
 };
@@ -166,7 +167,7 @@ done:
 static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 {
 	u8 buf[8];
-	unsigned int base_addr, limit_addr;
+	unsigned int base_addr, limit_addr, truncated_bytes, buf_ignore_size;
 	unsigned int hotword_flag, musdet_flag;
 
 	if (!rt5514_dsp->substream || rt5514_stream_flag)
@@ -186,11 +187,13 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 		base_addr = RT5514_BUFFER_VOICE_BASE;
 		limit_addr = RT5514_BUFFER_VOICE_LIMIT;
 		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_VOICE_WP;
+		buf_ignore_size = rt5514_dsp->hotword_ignore_ms * 2 * 16;
 	} else if (musdet_flag == 1) {
 		rt5514_stream_flag = RT5514_DSP_STREAM_MUSDET;
 		base_addr = RT5514_BUFFER_MUSIC_BASE;
 		limit_addr = RT5514_BUFFER_MUSIC_LIMIT;
 		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_MUSIC_WP;
+		buf_ignore_size = rt5514_dsp->musdet_ignore_ms * 16;
 	} else {
 		return;
 	}
@@ -221,10 +224,21 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 	if ((rt5514_dsp->buf_rp & 0xfff00000) != 0x4ff00000)
 		return;
 
+	rt5514_dsp->buf_rp += buf_ignore_size;
+
+	if (rt5514_dsp->buf_rp >= rt5514_dsp->buf_limit) {
+		truncated_bytes = rt5514_dsp->buf_rp -
+			rt5514_dsp->buf_limit;
+
+		rt5514_dsp->buf_rp = rt5514_dsp->buf_base +
+			truncated_bytes;
+	}
+
 	if (rt5514_dsp->buf_rp % 8)
 		rt5514_dsp->buf_rp = (rt5514_dsp->buf_rp / 8) * 8;
 
-	rt5514_dsp->buf_size = rt5514_dsp->buf_limit - rt5514_dsp->buf_base;
+	rt5514_dsp->buf_size = rt5514_dsp->buf_limit - rt5514_dsp->buf_base -
+		buf_ignore_size;
 
 	if (rt5514_dsp->buf_base && rt5514_dsp->buf_limit &&
 		rt5514_dsp->buf_rp && rt5514_dsp->buf_size)
@@ -338,6 +352,17 @@ static const struct snd_pcm_ops rt5514_spi_pcm_ops = {
 	.page		= snd_pcm_lib_get_vmalloc_page,
 };
 
+static int rt5514_pcm_parse_dp(struct rt5514_dsp *rt5514_dsp,
+	struct device *dev)
+{
+	device_property_read_u32(dev, "realtek,musdet-ignore-ms",
+		&rt5514_dsp->musdet_ignore_ms);
+	device_property_read_u32(dev, "realtek,hotword-ignore-ms",
+		&rt5514_dsp->hotword_ignore_ms);
+
+	return 0;
+}
+
 static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 {
 	struct rt5514_dsp *rt5514_dsp;
@@ -345,6 +370,8 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 
 	rt5514_dsp = devm_kzalloc(platform->dev, sizeof(*rt5514_dsp),
 			GFP_KERNEL);
+
+	rt5514_pcm_parse_dp(rt5514_dsp, &rt5514_spi->dev);
 
 	rt5514_dsp->dev = &rt5514_spi->dev;
 	mutex_init(&rt5514_dsp->dma_lock);
