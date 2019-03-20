@@ -47,7 +47,6 @@ struct rt5514_dsp {
 	unsigned int buf_base, buf_limit, buf_rp, buf_rp_addr;
 	unsigned int hotword_ignore_ms, musdet_ignore_ms;
 	size_t buf_size, get_size, dma_offset;
-	bool suspended;
 };
 
 static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
@@ -573,7 +572,6 @@ static int rt5514_suspend(struct device *dev)
 		enable_irq_wake(irq);
 
 	mutex_lock(&rt5514_dsp->suspend_lock);
-	rt5514_dsp->suspended = true;
 
 	return 0;
 }
@@ -589,7 +587,6 @@ static int rt5514_resume(struct device *dev)
 		disable_irq_wake(irq);
 
 	mutex_unlock(&rt5514_dsp->suspend_lock);
-	rt5514_dsp->suspended = false;
 
 	return 0;
 }
