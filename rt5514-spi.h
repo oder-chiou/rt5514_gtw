@@ -49,7 +49,6 @@ enum {
 	RT5514_DSP_MUSDET,
 };
 
-extern unsigned int rt5514_stream_flag;
 int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len);
 int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len);
 

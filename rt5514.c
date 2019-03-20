@@ -242,8 +242,6 @@ static int rt5514_dsp_voice_wake_up_get(struct snd_kcontrol *kcontrol,
 static int rt5514_dsp_stream_flag_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = rt5514_stream_flag;
-
 	return 0;
 }
 

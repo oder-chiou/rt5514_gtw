@@ -36,17 +36,17 @@
 #include "rt5514-spi.h"
 
 static struct spi_device *rt5514_spi;
-unsigned int rt5514_stream_flag = RT5514_DSP_NO_STREAM;
-EXPORT_SYMBOL_GPL(rt5514_stream_flag);
+static struct mutex spi_lock;
 
 struct rt5514_dsp {
 	struct device *dev;
-	struct delayed_work copy_work, start_work;
+	struct delayed_work copy_work_0, copy_work_1, start_work;
 	struct mutex dma_lock, suspend_lock;
-	struct snd_pcm_substream *substream;
-	unsigned int buf_base, buf_limit, buf_rp, buf_rp_addr;
+	struct snd_pcm_substream *substream[2];
+	unsigned int buf_base[2], buf_limit[2], buf_rp[2], buf_rp_addr[2];
+	unsigned int stream_flag[2];
 	unsigned int hotword_ignore_ms, musdet_ignore_ms;
-	size_t buf_size, get_size, dma_offset;
+	size_t buf_size[2], get_size[2], dma_offset[2];
 };
 
 static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
@@ -63,101 +63,202 @@ static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
 	.buffer_bytes_max	= 0x20000,
 };
 
-static struct snd_soc_dai_driver rt5514_spi_dai = {
-	.name = "rt5514-dsp-cpu-dai",
-	.id = 0,
-	.capture = {
-		.stream_name = "DSP Capture",
-		.channels_min = 1,
-		.channels_max = 1,
-		.rates = SNDRV_PCM_RATE_16000,
-		.formats = SNDRV_PCM_FMTBIT_S16_LE,
+static struct snd_soc_dai_driver rt5514_spi_dai[] = {
+	{
+		.name = "rt5514-dsp-cpu-dai1",
+		.id = 0,
+		.capture = {
+			.stream_name = "DSP Capture",
+			.channels_min = 1,
+			.channels_max = 1,
+			.rates = SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+		},
+	},
+	{
+		.name = "rt5514-dsp-cpu-dai2",
+		.id = 1,
+		.capture = {
+			.stream_name = "DSP Capture",
+			.channels_min = 1,
+			.channels_max = 1,
+			.rates = SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+		},
 	},
 };
 
-static void rt5514_spi_copy_work(struct work_struct *work)
+static void rt5514_spi_copy_work_0(struct work_struct *work)
 {
 	struct rt5514_dsp *rt5514_dsp =
-		container_of(work, struct rt5514_dsp, copy_work.work);
+		container_of(work, struct rt5514_dsp, copy_work_0.work);
 	struct snd_pcm_runtime *runtime;
 	size_t period_bytes, truncated_bytes = 0;
 	unsigned int cur_wp, remain_data;
 	u8 buf[8];
 
 	mutex_lock(&rt5514_dsp->dma_lock);
-	if (!rt5514_dsp->substream) {
-		dev_err(rt5514_dsp->dev, "No pcm substream\n");
+	if (!rt5514_dsp->substream[0]) {
+		dev_err(rt5514_dsp->dev, "No pcm0 substream\n");
 		goto done;
 	}
 
-	runtime = rt5514_dsp->substream->runtime;
-	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream);
+	runtime = rt5514_dsp->substream[0]->runtime;
+	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream[0]);
 	if (!period_bytes) {
-		schedule_delayed_work(&rt5514_dsp->copy_work,
+		schedule_delayed_work(&rt5514_dsp->copy_work_0,
 			msecs_to_jiffies(50));
 		goto done;
 	}
 
-	if (rt5514_dsp->buf_size % period_bytes)
-		rt5514_dsp->buf_size = (rt5514_dsp->buf_size / period_bytes) *
+	if (rt5514_dsp->buf_size[0] % period_bytes)
+		rt5514_dsp->buf_size[0] = (rt5514_dsp->buf_size[0] / period_bytes) *
 			period_bytes;
 
-	if (rt5514_dsp->get_size >= rt5514_dsp->buf_size) {
-		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr, (u8 *)&buf,
+	if (rt5514_dsp->get_size[0] >= rt5514_dsp->buf_size[0]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[0], (u8 *)&buf,
 			sizeof(buf));
 		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 |
 					buf[3] << 24;
 		if ((cur_wp & 0xfff00000) != 0x4ff00000) {
-			schedule_delayed_work(&rt5514_dsp->copy_work,
+			schedule_delayed_work(&rt5514_dsp->copy_work_0,
 				msecs_to_jiffies(50));
 			goto done;
 		}
 
-		if (cur_wp >= rt5514_dsp->buf_rp)
-			remain_data = (cur_wp - rt5514_dsp->buf_rp);
+		if (cur_wp >= rt5514_dsp->buf_rp[0])
+			remain_data = (cur_wp - rt5514_dsp->buf_rp[0]);
 		else
 			remain_data =
-				(rt5514_dsp->buf_limit - rt5514_dsp->buf_rp) +
-				(cur_wp - rt5514_dsp->buf_base);
+				(rt5514_dsp->buf_limit[0] - rt5514_dsp->buf_rp[0]) +
+				(cur_wp - rt5514_dsp->buf_base[0]);
 
 		if (remain_data < period_bytes) {
-			schedule_delayed_work(&rt5514_dsp->copy_work,
+			schedule_delayed_work(&rt5514_dsp->copy_work_0,
 				msecs_to_jiffies(50));
 			goto done;
 		}
 	}
 
-	if (rt5514_dsp->buf_rp + period_bytes <= rt5514_dsp->buf_limit) {
-		rt5514_spi_burst_read(rt5514_dsp->buf_rp,
-			runtime->dma_area + rt5514_dsp->dma_offset,
+	if (rt5514_dsp->buf_rp[0] + period_bytes <= rt5514_dsp->buf_limit[0]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[0],
+			runtime->dma_area + rt5514_dsp->dma_offset[0],
 			period_bytes);
 
-		if (rt5514_dsp->buf_rp + period_bytes == rt5514_dsp->buf_limit)
-			rt5514_dsp->buf_rp = rt5514_dsp->buf_base;
+		if (rt5514_dsp->buf_rp[0] + period_bytes == rt5514_dsp->buf_limit[0])
+			rt5514_dsp->buf_rp[0] = rt5514_dsp->buf_base[0];
 		else
-			rt5514_dsp->buf_rp += period_bytes;
+			rt5514_dsp->buf_rp[0] += period_bytes;
 	} else {
-		truncated_bytes = rt5514_dsp->buf_limit - rt5514_dsp->buf_rp;
-		rt5514_spi_burst_read(rt5514_dsp->buf_rp,
-			runtime->dma_area + rt5514_dsp->dma_offset,
+		truncated_bytes = rt5514_dsp->buf_limit[0] - rt5514_dsp->buf_rp[0];
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[0],
+			runtime->dma_area + rt5514_dsp->dma_offset[0],
 			truncated_bytes);
 
-		rt5514_spi_burst_read(rt5514_dsp->buf_base,
-			runtime->dma_area + rt5514_dsp->dma_offset +
+		rt5514_spi_burst_read(rt5514_dsp->buf_base[0],
+			runtime->dma_area + rt5514_dsp->dma_offset[0] +
 			truncated_bytes, period_bytes - truncated_bytes);
 
-		rt5514_dsp->buf_rp = rt5514_dsp->buf_base + period_bytes -
+		rt5514_dsp->buf_rp[0] = rt5514_dsp->buf_base[0] + period_bytes -
 			truncated_bytes;
 	}
 
-	rt5514_dsp->get_size += period_bytes;
-	rt5514_dsp->dma_offset += period_bytes;
-	if (rt5514_dsp->dma_offset >= runtime->dma_bytes)
-		rt5514_dsp->dma_offset = 0;
+	rt5514_dsp->get_size[0] += period_bytes;
+	rt5514_dsp->dma_offset[0] += period_bytes;
+	if (rt5514_dsp->dma_offset[0] >= runtime->dma_bytes)
+		rt5514_dsp->dma_offset[0] = 0;
 
-	snd_pcm_period_elapsed(rt5514_dsp->substream);
+	snd_pcm_period_elapsed(rt5514_dsp->substream[0]);
 
-	schedule_delayed_work(&rt5514_dsp->copy_work, msecs_to_jiffies(10));
+	schedule_delayed_work(&rt5514_dsp->copy_work_0, msecs_to_jiffies(10));
+
+done:
+	mutex_unlock(&rt5514_dsp->dma_lock);
+}
+
+static void rt5514_spi_copy_work_1(struct work_struct *work)
+{
+	struct rt5514_dsp *rt5514_dsp =
+		container_of(work, struct rt5514_dsp, copy_work_1.work);
+	struct snd_pcm_runtime *runtime;
+	size_t period_bytes, truncated_bytes = 0;
+	unsigned int cur_wp, remain_data;
+	u8 buf[8];
+
+	mutex_lock(&rt5514_dsp->dma_lock);
+	if (!rt5514_dsp->substream[1]) {
+		dev_err(rt5514_dsp->dev, "No pcm1 substream\n");
+		goto done;
+	}
+
+	runtime = rt5514_dsp->substream[1]->runtime;
+	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream[1]);
+	if (!period_bytes) {
+		schedule_delayed_work(&rt5514_dsp->copy_work_1,
+			msecs_to_jiffies(50));
+		goto done;
+	}
+
+	if (rt5514_dsp->buf_size[1] % period_bytes)
+		rt5514_dsp->buf_size[1] = (rt5514_dsp->buf_size[1] / period_bytes) *
+			period_bytes;
+
+	if (rt5514_dsp->get_size[1] >= rt5514_dsp->buf_size[1]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[1], (u8 *)&buf,
+			sizeof(buf));
+		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 |
+					buf[3] << 24;
+		if ((cur_wp & 0xfff00000) != 0x4ff00000) {
+			schedule_delayed_work(&rt5514_dsp->copy_work_1,
+				msecs_to_jiffies(50));
+			goto done;
+		}
+
+		if (cur_wp >= rt5514_dsp->buf_rp[1])
+			remain_data = (cur_wp - rt5514_dsp->buf_rp[1]);
+		else
+			remain_data =
+				(rt5514_dsp->buf_limit[1] - rt5514_dsp->buf_rp[1]) +
+				(cur_wp - rt5514_dsp->buf_base[1]);
+
+		if (remain_data < period_bytes) {
+			schedule_delayed_work(&rt5514_dsp->copy_work_1,
+				msecs_to_jiffies(50));
+			goto done;
+		}
+	}
+
+	if (rt5514_dsp->buf_rp[1] + period_bytes <= rt5514_dsp->buf_limit[1]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[1],
+			runtime->dma_area + rt5514_dsp->dma_offset[1],
+			period_bytes);
+
+		if (rt5514_dsp->buf_rp[1] + period_bytes == rt5514_dsp->buf_limit[1])
+			rt5514_dsp->buf_rp[1] = rt5514_dsp->buf_base[1];
+		else
+			rt5514_dsp->buf_rp[1] += period_bytes;
+	} else {
+		truncated_bytes = rt5514_dsp->buf_limit[1] - rt5514_dsp->buf_rp[1];
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[1],
+			runtime->dma_area + rt5514_dsp->dma_offset[1],
+			truncated_bytes);
+
+		rt5514_spi_burst_read(rt5514_dsp->buf_base[1],
+			runtime->dma_area + rt5514_dsp->dma_offset[1] +
+			truncated_bytes, period_bytes - truncated_bytes);
+
+		rt5514_dsp->buf_rp[1] = rt5514_dsp->buf_base[1] + period_bytes -
+			truncated_bytes;
+	}
+
+	rt5514_dsp->get_size[1] += period_bytes;
+	rt5514_dsp->dma_offset[1] += period_bytes;
+	if (rt5514_dsp->dma_offset[1] >= runtime->dma_bytes)
+		rt5514_dsp->dma_offset[1] = 0;
+
+	snd_pcm_period_elapsed(rt5514_dsp->substream[1]);
+
+	schedule_delayed_work(&rt5514_dsp->copy_work_1, msecs_to_jiffies(10));
 
 done:
 	mutex_unlock(&rt5514_dsp->dma_lock);
@@ -167,13 +268,8 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 {
 	u8 buf[8];
 	unsigned int base_addr, limit_addr, truncated_bytes, buf_ignore_size;
-	unsigned int hotword_flag, musdet_flag;
-
-	if (!rt5514_dsp->substream || rt5514_stream_flag)
-		return;
-
-	rt5514_dsp->get_size = 0;
-
+	unsigned int hotword_flag, musdet_flag, stream_flag;
+		
 	rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
 	hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
 		buf[3] << 24;
@@ -182,17 +278,41 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 	musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
 
 	if (hotword_flag == 1) {
-		rt5514_stream_flag = RT5514_DSP_STREAM_HOTWORD;
+		stream_flag = RT5514_DSP_STREAM_HOTWORD;
 		base_addr = RT5514_BUFFER_VOICE_BASE;
 		limit_addr = RT5514_BUFFER_VOICE_LIMIT;
-		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_VOICE_WP;
+		rt5514_dsp->buf_rp_addr[0] = RT5514_BUFFER_VOICE_WP;
 		buf_ignore_size = rt5514_dsp->hotword_ignore_ms * 2 * 16;
+		memset(buf, 0, sizeof(buf));
+		rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
 	} else if (musdet_flag == 1) {
-		rt5514_stream_flag = RT5514_DSP_STREAM_MUSDET;
+		stream_flag = RT5514_DSP_STREAM_MUSDET;
 		base_addr = RT5514_BUFFER_MUSIC_BASE;
 		limit_addr = RT5514_BUFFER_MUSIC_LIMIT;
-		rt5514_dsp->buf_rp_addr = RT5514_BUFFER_MUSIC_WP;
+		rt5514_dsp->buf_rp_addr[1] = RT5514_BUFFER_MUSIC_WP;
 		buf_ignore_size = rt5514_dsp->musdet_ignore_ms * 16;
+		memset(buf, 0, sizeof(buf));
+		rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
+	} else {
+		return;
+	}
+
+	if (stream_flag == RT5514_DSP_STREAM_HOTWORD) {
+		if (!rt5514_dsp->substream[0] || rt5514_dsp->stream_flag[0]) {
+			dev_err(rt5514_dsp->dev, "No pcm0 substream or it is streaming\n");
+			return;
+		} else {
+			rt5514_dsp->stream_flag[0] = stream_flag;
+			rt5514_dsp->get_size[0] = 0;
+		}
+	} else if (stream_flag == RT5514_DSP_STREAM_MUSDET) {
+		if (!rt5514_dsp->substream[1] || rt5514_dsp->stream_flag[1]) {
+			dev_err(rt5514_dsp->dev, "No pcm1 substream or it is streaming\n");
+			return;
+		} else {
+			rt5514_dsp->stream_flag[1] = stream_flag;
+			rt5514_dsp->get_size[1] = 0;
+		}
 	} else {
 		return;
 	}
@@ -203,62 +323,78 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 	 * individually to make sure the data correctly.
 	 */
 	rt5514_spi_burst_read(base_addr, (u8 *)&buf, sizeof(buf));
-	rt5514_dsp->buf_base = buf[0] | buf[1] << 8 | buf[2] << 16 |
+	rt5514_dsp->buf_base[stream_flag - 1] = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
-	if ((rt5514_dsp->buf_base & 0xfff00000) != 0x4ff00000)
+	if ((rt5514_dsp->buf_base[stream_flag - 1] & 0xfff00000) != 0x4ff00000)
 		return;
 
 	rt5514_spi_burst_read(limit_addr, (u8 *)&buf, sizeof(buf));
-	rt5514_dsp->buf_limit = buf[0] | buf[1] << 8 | buf[2] << 16 |
+	rt5514_dsp->buf_limit[stream_flag - 1] = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
-	if ((rt5514_dsp->buf_limit & 0xfff00000) != 0x4ff00000)
+	if ((rt5514_dsp->buf_limit[stream_flag - 1] & 0xfff00000) != 0x4ff00000)
 		return;
 
-	if (rt5514_dsp->buf_limit % 8)
-		rt5514_dsp->buf_limit = ((rt5514_dsp->buf_limit / 8) + 1) * 8;
+	if (rt5514_dsp->buf_limit[stream_flag - 1] % 8)
+		rt5514_dsp->buf_limit[stream_flag - 1] =
+		((rt5514_dsp->buf_limit[stream_flag - 1] / 8) + 1) * 8;
 
-	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr, (u8 *)&buf, sizeof(buf));
-	rt5514_dsp->buf_rp = buf[0] | buf[1] << 8 | buf[2] << 16 |
+	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[stream_flag - 1],
+		(u8 *)&buf, sizeof(buf));
+	rt5514_dsp->buf_rp[stream_flag - 1] = buf[0] | buf[1] << 8 | buf[2] << 16 |
 				buf[3] << 24;
-	if ((rt5514_dsp->buf_rp & 0xfff00000) != 0x4ff00000)
+	if ((rt5514_dsp->buf_rp[stream_flag - 1] & 0xfff00000) != 0x4ff00000)
 		return;
 
-	rt5514_dsp->buf_rp += buf_ignore_size;
+	rt5514_dsp->buf_rp[stream_flag - 1] += buf_ignore_size;
 
-	if (rt5514_dsp->buf_rp >= rt5514_dsp->buf_limit) {
-		truncated_bytes = rt5514_dsp->buf_rp -
-			rt5514_dsp->buf_limit;
+	if (rt5514_dsp->buf_rp[stream_flag - 1] >= rt5514_dsp->buf_limit[stream_flag - 1]) {
+		truncated_bytes = rt5514_dsp->buf_rp[stream_flag - 1] -
+			rt5514_dsp->buf_limit[stream_flag - 1];
 
-		rt5514_dsp->buf_rp = rt5514_dsp->buf_base +
+		rt5514_dsp->buf_rp[stream_flag - 1] = rt5514_dsp->buf_base[stream_flag - 1] +
 			truncated_bytes;
 	}
 
-	if (rt5514_dsp->buf_rp % 8)
-		rt5514_dsp->buf_rp = (rt5514_dsp->buf_rp / 8) * 8;
+	if (rt5514_dsp->buf_rp[stream_flag - 1] % 8)
+		rt5514_dsp->buf_rp[stream_flag - 1] = (rt5514_dsp->buf_rp[stream_flag - 1] / 8) * 8;
 
-	rt5514_dsp->buf_size = rt5514_dsp->buf_limit - rt5514_dsp->buf_base -
-		buf_ignore_size;
+	rt5514_dsp->buf_size[stream_flag - 1] = rt5514_dsp->buf_limit[stream_flag - 1] -
+		rt5514_dsp->buf_base[stream_flag - 1] - buf_ignore_size;
 
-	if (rt5514_dsp->buf_base && rt5514_dsp->buf_limit &&
-		rt5514_dsp->buf_rp && rt5514_dsp->buf_size)
-		schedule_delayed_work(&rt5514_dsp->copy_work,
-			msecs_to_jiffies(0));
+	if (rt5514_dsp->buf_base[stream_flag - 1] && rt5514_dsp->buf_limit[stream_flag - 1] &&
+		rt5514_dsp->buf_rp[stream_flag - 1] && rt5514_dsp->buf_size[stream_flag - 1]) {
+
+		if (stream_flag == RT5514_DSP_STREAM_HOTWORD)
+			schedule_delayed_work(&rt5514_dsp->copy_work_0,
+				msecs_to_jiffies(0));
+		else if (stream_flag == RT5514_DSP_STREAM_MUSDET)
+			schedule_delayed_work(&rt5514_dsp->copy_work_1,
+				msecs_to_jiffies(0));
+		else
+			return;
+
+	}
 }
 
 static void rt5514_spi_start_work(struct work_struct *work) {
 	struct rt5514_dsp *rt5514_dsp =
 		container_of(work, struct rt5514_dsp, start_work.work);
+	struct snd_card *card;
 
-	if (!rt5514_dsp->substream || !rt5514_dsp->substream->pcm)
+	if (rt5514_dsp->substream[0] && rt5514_dsp->substream[0]->pcm)
+		card = rt5514_dsp->substream[0]->pcm->card;
+	else if (rt5514_dsp->substream[1] && rt5514_dsp->substream[1]->pcm)
+		card = rt5514_dsp->substream[1]->pcm->card;
+	else
 		return;
 
 	mutex_lock(&rt5514_dsp->suspend_lock);
 	mutex_unlock(&rt5514_dsp->suspend_lock);
 
-	snd_power_lock(rt5514_dsp->substream->pcm->card);
-	if (!snd_power_wait(rt5514_dsp->substream->pcm->card, SNDRV_CTL_POWER_D0))
+	snd_power_lock(card);
+	if (!snd_power_wait(card, SNDRV_CTL_POWER_D0))
 		rt5514_schedule_copy(rt5514_dsp);
-	snd_power_unlock(rt5514_dsp->substream->pcm->card);
+	snd_power_unlock(card);
 }
 
 static irqreturn_t rt5514_spi_irq(int irq, void *data)
@@ -266,6 +402,7 @@ static irqreturn_t rt5514_spi_irq(int irq, void *data)
 	struct rt5514_dsp *rt5514_dsp = data;
 
 	pm_wakeup_event(rt5514_dsp->dev, 5000);
+	cancel_delayed_work_sync(&rt5514_dsp->start_work);
 	schedule_delayed_work(&rt5514_dsp->start_work, msecs_to_jiffies(0));
 
 	return IRQ_HANDLED;
@@ -283,28 +420,16 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 			       struct snd_pcm_hw_params *hw_params)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct rt5514_dsp *rt5514_dsp =
 			snd_soc_platform_get_drvdata(rtd->platform);
 	int ret;
-	u8 buf[8];
-	unsigned int hotword_flag, musdet_flag;
 
 	mutex_lock(&rt5514_dsp->dma_lock);
 	ret = snd_pcm_lib_alloc_vmalloc_buffer(substream,
 			params_buffer_bytes(hw_params));
-	rt5514_dsp->substream = substream;
-	rt5514_dsp->dma_offset = 0;
-
-	/* Read IRQ status and schedule copy accordingly. */
-	rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
-	hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-
-	rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf, sizeof(buf));
-	musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-
-	if (hotword_flag | musdet_flag)
-		rt5514_schedule_copy(rt5514_dsp);
-
+	rt5514_dsp->substream[cpu_dai->id] = substream;
+	rt5514_dsp->dma_offset[cpu_dai->id] = 0;
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
 	return ret;
@@ -313,20 +438,20 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 static int rt5514_spi_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct rt5514_dsp *rt5514_dsp =
 			snd_soc_platform_get_drvdata(rtd->platform);
-	char buf[8] = {0};
 
 	mutex_lock(&rt5514_dsp->dma_lock);
-	rt5514_dsp->substream = NULL;
+	rt5514_dsp->substream[cpu_dai->id] = NULL;
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
-	cancel_delayed_work_sync(&rt5514_dsp->copy_work);
-	cancel_delayed_work_sync(&rt5514_dsp->start_work);
+	if (cpu_dai->id)
+		cancel_delayed_work_sync(&rt5514_dsp->copy_work_1);
+	else
+		cancel_delayed_work_sync(&rt5514_dsp->copy_work_0);
 
-	rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
-	rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
-	rt5514_stream_flag = RT5514_DSP_NO_STREAM;
+	rt5514_dsp->stream_flag[cpu_dai->id] = RT5514_DSP_NO_STREAM;
 
 	return snd_pcm_lib_free_vmalloc_buffer(substream);
 }
@@ -336,10 +461,11 @@ static snd_pcm_uframes_t rt5514_spi_pcm_pointer(
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct rt5514_dsp *rt5514_dsp =
 		snd_soc_platform_get_drvdata(rtd->platform);
 
-	return bytes_to_frames(runtime, rt5514_dsp->dma_offset);
+	return bytes_to_frames(runtime, rt5514_dsp->dma_offset[cpu_dai->id]);
 }
 
 static const struct snd_pcm_ops rt5514_spi_pcm_ops = {
@@ -375,7 +501,8 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 	rt5514_dsp->dev = &rt5514_spi->dev;
 	mutex_init(&rt5514_dsp->dma_lock);
 	mutex_init(&rt5514_dsp->suspend_lock);
-	INIT_DELAYED_WORK(&rt5514_dsp->copy_work, rt5514_spi_copy_work);
+	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_0, rt5514_spi_copy_work_0);
+	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_1, rt5514_spi_copy_work_1);
 	INIT_DELAYED_WORK(&rt5514_dsp->start_work, rt5514_spi_start_work);
 	snd_soc_platform_set_drvdata(platform, rt5514_dsp);
 
@@ -417,9 +544,10 @@ int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len)
 	int status;
 	u8 write_buf[8];
 	unsigned int i, end, offset = 0;
-
 	struct spi_message message;
 	struct spi_transfer x[3];
+
+	mutex_lock(&spi_lock);
 
 	while (offset < len) {
 		if (offset + RT5514_SPI_BUF_LEN <= len)
@@ -450,8 +578,10 @@ int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len)
 
 		status = spi_sync(rt5514_spi, &message);
 
-		if (status)
+		if (status) {
+			mutex_unlock(&spi_lock);
 			return false;
+		}
 
 		offset += RT5514_SPI_BUF_LEN;
 	}
@@ -476,6 +606,7 @@ int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len)
 		rxbuf[i + 7] = write_buf[0];
 	}
 
+	mutex_unlock(&spi_lock);
 	return true;
 }
 EXPORT_SYMBOL_GPL(rt5514_spi_burst_read);
@@ -494,6 +625,8 @@ int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 	u8 spi_cmd = RT5514_SPI_CMD_BURST_WRITE;
 	u8 *write_buf;
 	unsigned int i, end, offset = 0;
+
+	mutex_lock(&spi_lock);
 
 	write_buf = kmalloc(RT5514_SPI_BUF_LEN + 6, GFP_KERNEL);
 
@@ -532,6 +665,7 @@ int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 
 	kfree(write_buf);
 
+	mutex_unlock(&spi_lock);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(rt5514_spi_burst_write);
@@ -541,6 +675,7 @@ static int rt5514_spi_probe(struct spi_device *spi)
 	int ret;
 
 	rt5514_spi = spi;
+	mutex_init(&spi_lock);
 
 	ret = devm_snd_soc_register_platform(&spi->dev, &rt5514_spi_platform);
 	if (ret < 0) {
@@ -550,7 +685,8 @@ static int rt5514_spi_probe(struct spi_device *spi)
 
 	ret = devm_snd_soc_register_component(&spi->dev,
 					      &rt5514_spi_dai_component,
-					      &rt5514_spi_dai, 1);
+					      rt5514_spi_dai,
+					      ARRAY_SIZE(rt5514_spi_dai));
 	if (ret < 0) {
 		dev_err(&spi->dev, "Failed to register component.\n");
 		return ret;
