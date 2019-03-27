@@ -1016,7 +1016,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 
 	{ "Stereo1 ADC MIX", NULL, "Stereo1 ADC MIXL" },
 	{ "Stereo1 ADC MIX", NULL, "Stereo1 ADC MIXR" },
-	{ "Stereo1 ADC MIX", NULL, "adc stereo1 filter" },
+	{ "Stereo1 ADC MIX", NULL, "adc stereo1 filter", rt5514_is_dsp_enabled },
 	{ "adc stereo1 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
 	{ "adc stereo1 filter", NULL, "ASRC AD1", rt5514_i2s_use_asrc },
 
@@ -1033,7 +1033,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 
 	{ "Stereo2 ADC MIX", NULL, "Stereo2 ADC MIXL" },
 	{ "Stereo2 ADC MIX", NULL, "Stereo2 ADC MIXR" },
-	{ "Stereo2 ADC MIX", NULL, "adc stereo2 filter" },
+	{ "Stereo2 ADC MIX", NULL, "adc stereo2 filter", rt5514_is_dsp_enabled },
 	{ "adc stereo2 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
 	{ "adc stereo2 filter", NULL, "ASRC AD2", rt5514_i2s_use_asrc },
 
