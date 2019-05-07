@@ -838,7 +838,7 @@ static int rt5514_i2s_use_asrc(struct snd_soc_dapm_widget *source,
 	return (rt5514->sysclk > rt5514->lrck * 384);
 }
 
-static int rt5514_is_dsp_enabled(struct snd_soc_dapm_widget *source,
+static int rt5514_is_not_dsp_enabled(struct snd_soc_dapm_widget *source,
 			 struct snd_soc_dapm_widget *sink)
 {
 	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(source->dapm);
@@ -966,10 +966,10 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 	{ "DMIC2", NULL, "DMIC2L" },
 	{ "DMIC2", NULL, "DMIC2R" },
 
-	{ "DMIC1L", NULL, "DMIC CLK", rt5514_is_dsp_enabled },
-	{ "DMIC1R", NULL, "DMIC CLK", rt5514_is_dsp_enabled },
-	{ "DMIC2L", NULL, "DMIC CLK", rt5514_is_dsp_enabled },
-	{ "DMIC2R", NULL, "DMIC CLK", rt5514_is_dsp_enabled },
+	{ "DMIC1L", NULL, "DMIC CLK", rt5514_is_not_dsp_enabled },
+	{ "DMIC1R", NULL, "DMIC CLK", rt5514_is_not_dsp_enabled },
+	{ "DMIC2L", NULL, "DMIC CLK", rt5514_is_not_dsp_enabled },
+	{ "DMIC2R", NULL, "DMIC CLK", rt5514_is_not_dsp_enabled },
 
 	{ "Stereo1 DMIC Mux", "DMIC1", "DMIC1" },
 	{ "Stereo1 DMIC Mux", "DMIC2", "DMIC2" },
@@ -1016,7 +1016,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 
 	{ "Stereo1 ADC MIX", NULL, "Stereo1 ADC MIXL" },
 	{ "Stereo1 ADC MIX", NULL, "Stereo1 ADC MIXR" },
-	{ "Stereo1 ADC MIX", NULL, "adc stereo1 filter", rt5514_is_dsp_enabled },
+	{ "Stereo1 ADC MIX", NULL, "adc stereo1 filter", rt5514_is_not_dsp_enabled },
 	{ "adc stereo1 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
 	{ "adc stereo1 filter", NULL, "ASRC AD1", rt5514_i2s_use_asrc },
 
@@ -1033,7 +1033,7 @@ static const struct snd_soc_dapm_route rt5514_dapm_routes[] = {
 
 	{ "Stereo2 ADC MIX", NULL, "Stereo2 ADC MIXL" },
 	{ "Stereo2 ADC MIX", NULL, "Stereo2 ADC MIXR" },
-	{ "Stereo2 ADC MIX", NULL, "adc stereo2 filter", rt5514_is_dsp_enabled },
+	{ "Stereo2 ADC MIX", NULL, "adc stereo2 filter", rt5514_is_not_dsp_enabled },
 	{ "adc stereo2 filter", NULL, "PLL1", rt5514_is_sys_clk_from_pll },
 	{ "adc stereo2 filter", NULL, "ASRC AD2", rt5514_i2s_use_asrc },
 
@@ -1049,8 +1049,11 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	int pre_div, bclk_ms, frame_size;
 	unsigned int val_len = 0;
 
-	if (rt5514->dsp_enabled)
+	if (rt5514->dsp_enabled) {
+		regmap_write(rt5514->i2c_regmap, 0x18002fb0, 2);
+		regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
 		return 0;
+	}
 
 	rt5514->lrck = params_rate(params);
 	pre_div = rl6231_get_clk_info(rt5514->sysclk, rt5514->lrck);
@@ -1098,6 +1101,21 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 		RT5514_CLK_SYS_DIV_OUT_MASK | RT5514_SEL_ADC_OSR_MASK,
 		pre_div << RT5514_CLK_SYS_DIV_OUT_SFT |
 		pre_div << RT5514_SEL_ADC_OSR_SFT);
+
+	return 0;
+}
+
+static int rt5514_hw_free(struct snd_pcm_substream  *substream,
+	struct snd_soc_dai *dai)
+{
+	struct snd_soc_codec *codec = dai->codec;
+	struct rt5514_priv *rt5514 = snd_soc_codec_get_drvdata(codec);
+
+	if (rt5514->dsp_enabled) {
+		regmap_write(rt5514->i2c_regmap, 0x18002fb0, 0);
+		regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+		return 0;
+	}
 
 	return 0;
 }
@@ -1403,6 +1421,7 @@ static int rt5514_i2c_write(void *context, unsigned int reg, unsigned int val)
 
 static const struct snd_soc_dai_ops rt5514_aif_dai_ops = {
 	.hw_params = rt5514_hw_params,
+	.hw_free = rt5514_hw_free,
 	.set_fmt = rt5514_set_dai_fmt,
 	.set_sysclk = rt5514_set_dai_sysclk,
 	.set_pll = rt5514_set_dai_pll,
