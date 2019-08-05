@@ -40,13 +40,13 @@ static struct mutex spi_lock;
 
 struct rt5514_dsp {
 	struct device *dev;
-	struct delayed_work copy_work_0, copy_work_1, start_work;
+	struct delayed_work copy_work_0, copy_work_1, copy_work_2, start_work;
 	struct mutex dma_lock, suspend_lock;
-	struct snd_pcm_substream *substream[2];
-	unsigned int buf_base[2], buf_limit[2], buf_rp[2], buf_rp_addr[2];
+	struct snd_pcm_substream *substream[3];
+	unsigned int buf_base[3], buf_limit[3], buf_rp[3], buf_rp_addr[3];
 	unsigned int stream_flag[2];
 	unsigned int hotword_ignore_ms, musdet_ignore_ms;
-	size_t buf_size[2], get_size[2], dma_offset[2];
+	size_t buf_size[3], get_size[2], dma_offset[3];
 };
 
 static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
@@ -69,8 +69,8 @@ static struct snd_soc_dai_driver rt5514_spi_dai[] = {
 		.id = 0,
 		.capture = {
 			.stream_name = "DSP Capture",
-			.channels_min = 1,
-			.channels_max = 1,
+			.channels_min = 2,
+			.channels_max = 2,
 			.rates = SNDRV_PCM_RATE_16000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 		},
@@ -83,6 +83,17 @@ static struct snd_soc_dai_driver rt5514_spi_dai[] = {
 			.channels_min = 1,
 			.channels_max = 1,
 			.rates = SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+		},
+	},
+	{
+		.name = "rt5514-dsp-cpu-dai3",
+		.id = 2,
+		.capture = {
+			.stream_name = "DSP Capture",
+			.channels_min = 1,
+			.channels_max = 1,
+			.rates = SNDRV_PCM_RATE_8000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 		},
 	},
@@ -264,57 +275,148 @@ done:
 	mutex_unlock(&rt5514_dsp->dma_lock);
 }
 
-static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
+static void rt5514_spi_copy_work_2(struct work_struct *work)
 {
+	struct rt5514_dsp *rt5514_dsp =
+		container_of(work, struct rt5514_dsp, copy_work_2.work);
+	struct snd_pcm_runtime *runtime;
+	size_t period_bytes, truncated_bytes = 0;
+	unsigned int cur_wp, remain_data;
 	u8 buf[8];
-	unsigned int base_addr, limit_addr, truncated_bytes, buf_ignore_size;
-	unsigned int hotword_flag, musdet_flag, stream_flag;
-		
-	rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
-	hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
-		buf[3] << 24;
 
-	rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf, sizeof(buf));
-	musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-
-	if (hotword_flag == 1) {
-		stream_flag = RT5514_DSP_STREAM_HOTWORD;
-		base_addr = RT5514_BUFFER_VOICE_BASE;
-		limit_addr = RT5514_BUFFER_VOICE_LIMIT;
-		rt5514_dsp->buf_rp_addr[0] = RT5514_BUFFER_VOICE_WP;
-		buf_ignore_size = rt5514_dsp->hotword_ignore_ms * 2 * 16;
-		memset(buf, 0, sizeof(buf));
-		rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
-	} else if (musdet_flag == 1) {
-		stream_flag = RT5514_DSP_STREAM_MUSDET;
-		base_addr = RT5514_BUFFER_MUSIC_BASE;
-		limit_addr = RT5514_BUFFER_MUSIC_LIMIT;
-		rt5514_dsp->buf_rp_addr[1] = RT5514_BUFFER_MUSIC_WP;
-		buf_ignore_size = rt5514_dsp->musdet_ignore_ms * 16;
-		memset(buf, 0, sizeof(buf));
-		rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
-	} else {
-		return;
+	mutex_lock(&rt5514_dsp->dma_lock);
+	if (!rt5514_dsp->substream[2]) {
+		dev_err(rt5514_dsp->dev, "No pcm2 substream\n");
+		goto done;
 	}
 
-	if (stream_flag == RT5514_DSP_STREAM_HOTWORD) {
-		if (!rt5514_dsp->substream[0] || rt5514_dsp->stream_flag[0]) {
-			dev_err(rt5514_dsp->dev, "No pcm0 substream or it is streaming\n");
-			return;
-		} else {
-			rt5514_dsp->stream_flag[0] = stream_flag;
-			rt5514_dsp->get_size[0] = 0;
-		}
-	} else if (stream_flag == RT5514_DSP_STREAM_MUSDET) {
-		if (!rt5514_dsp->substream[1] || rt5514_dsp->stream_flag[1]) {
-			dev_err(rt5514_dsp->dev, "No pcm1 substream or it is streaming\n");
-			return;
-		} else {
-			rt5514_dsp->stream_flag[1] = stream_flag;
-			rt5514_dsp->get_size[1] = 0;
-		}
+	runtime = rt5514_dsp->substream[2]->runtime;
+	period_bytes = snd_pcm_lib_period_bytes(rt5514_dsp->substream[2]);
+	if (!period_bytes) {
+		schedule_delayed_work(&rt5514_dsp->copy_work_2,
+			msecs_to_jiffies(50));
+		goto done;
+	}
+
+	if (rt5514_dsp->buf_size[2] % period_bytes)
+		rt5514_dsp->buf_size[2] = (rt5514_dsp->buf_size[2] / period_bytes) *
+			period_bytes;
+
+	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[2], (u8 *)&buf,
+		sizeof(buf));
+	cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+	if ((cur_wp & 0xfff00000) != 0x4ff00000) {
+		schedule_delayed_work(&rt5514_dsp->copy_work_2,
+			msecs_to_jiffies(50));
+		goto done;
+	}
+
+	if (cur_wp >= rt5514_dsp->buf_rp[2])
+		remain_data = (cur_wp - rt5514_dsp->buf_rp[2]);
+	else
+		remain_data =
+			(rt5514_dsp->buf_limit[2] - rt5514_dsp->buf_rp[2]) +
+			(cur_wp - rt5514_dsp->buf_base[2]);
+
+	if (remain_data < period_bytes) {
+		schedule_delayed_work(&rt5514_dsp->copy_work_2,
+			msecs_to_jiffies(50));
+		goto done;
+	}
+
+	if (rt5514_dsp->buf_rp[2] + period_bytes <= rt5514_dsp->buf_limit[2]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[2],
+			runtime->dma_area + rt5514_dsp->dma_offset[2],
+			period_bytes);
+
+		if (rt5514_dsp->buf_rp[2] + period_bytes == rt5514_dsp->buf_limit[2])
+			rt5514_dsp->buf_rp[2] = rt5514_dsp->buf_base[2];
+		else
+			rt5514_dsp->buf_rp[2] += period_bytes;
 	} else {
-		return;
+		truncated_bytes = rt5514_dsp->buf_limit[2] - rt5514_dsp->buf_rp[2];
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp[2],
+			runtime->dma_area + rt5514_dsp->dma_offset[2],
+			truncated_bytes);
+
+		rt5514_spi_burst_read(rt5514_dsp->buf_base[2],
+			runtime->dma_area + rt5514_dsp->dma_offset[2] +
+			truncated_bytes, period_bytes - truncated_bytes);
+
+		rt5514_dsp->buf_rp[2] = rt5514_dsp->buf_base[2] + period_bytes -
+			truncated_bytes;
+	}
+
+	rt5514_dsp->dma_offset[2] += period_bytes;
+	if (rt5514_dsp->dma_offset[2] >= runtime->dma_bytes)
+		rt5514_dsp->dma_offset[2] = 0;
+
+	snd_pcm_period_elapsed(rt5514_dsp->substream[2]);
+
+	schedule_delayed_work(&rt5514_dsp->copy_work_2, msecs_to_jiffies(10));
+
+done:
+	mutex_unlock(&rt5514_dsp->dma_lock);
+}
+
+static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp, bool is_adc)
+{
+	u8 buf[8];
+	unsigned int base_addr, limit_addr, truncated_bytes, buf_ignore_size = 0;
+	unsigned int hotword_flag, musdet_flag, stream_flag;
+
+	if (is_adc) {
+		stream_flag = RT5514_DSP_STREAM_ADC;
+		base_addr = RT5514_BUFFER_ADC_BASE;
+		limit_addr = RT5514_BUFFER_ADC_LIMIT;
+		rt5514_dsp->buf_rp_addr[2] = RT5514_BUFFER_ADC_WP;
+	} else {
+		rt5514_spi_burst_read(RT5514_HOTWORD_FLAG, (u8 *)&buf, sizeof(buf));
+		hotword_flag = buf[0] | buf[1] << 8 | buf[2] << 16 |
+			buf[3] << 24;
+
+		rt5514_spi_burst_read(RT5514_MUSDET_FLAG, (u8 *)&buf, sizeof(buf));
+		musdet_flag = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+
+		if (hotword_flag == 1) {
+			stream_flag = RT5514_DSP_STREAM_HOTWORD;
+			base_addr = RT5514_BUFFER_VOICE_BASE;
+			limit_addr = RT5514_BUFFER_VOICE_LIMIT;
+			rt5514_dsp->buf_rp_addr[0] = RT5514_BUFFER_VOICE_WP;
+			buf_ignore_size = rt5514_dsp->hotword_ignore_ms * 2 * 16;
+			memset(buf, 0, sizeof(buf));
+			rt5514_spi_burst_write(RT5514_HOTWORD_FLAG, buf, 8);
+		} else if (musdet_flag == 1) {
+			stream_flag = RT5514_DSP_STREAM_MUSDET;
+			base_addr = RT5514_BUFFER_MUSIC_BASE;
+			limit_addr = RT5514_BUFFER_MUSIC_LIMIT;
+			rt5514_dsp->buf_rp_addr[1] = RT5514_BUFFER_MUSIC_WP;
+			buf_ignore_size = rt5514_dsp->musdet_ignore_ms * 16;
+			memset(buf, 0, sizeof(buf));
+			rt5514_spi_burst_write(RT5514_MUSDET_FLAG, buf, 8);
+		} else {
+			return;
+		}
+
+		if (stream_flag == RT5514_DSP_STREAM_HOTWORD) {
+			if (!rt5514_dsp->substream[0] || rt5514_dsp->stream_flag[0]) {
+				dev_err(rt5514_dsp->dev, "No pcm0 substream or it is streaming\n");
+				return;
+			} else {
+				rt5514_dsp->stream_flag[0] = stream_flag;
+				rt5514_dsp->get_size[0] = 0;
+			}
+		} else if (stream_flag == RT5514_DSP_STREAM_MUSDET) {
+			if (!rt5514_dsp->substream[1] || rt5514_dsp->stream_flag[1]) {
+				dev_err(rt5514_dsp->dev, "No pcm1 substream or it is streaming\n");
+				return;
+			} else {
+				rt5514_dsp->stream_flag[1] = stream_flag;
+				rt5514_dsp->get_size[1] = 0;
+			}
+		} else {
+			return;
+		}
 	}
 
 	/**
@@ -364,7 +466,10 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 	if (rt5514_dsp->buf_base[stream_flag - 1] && rt5514_dsp->buf_limit[stream_flag - 1] &&
 		rt5514_dsp->buf_rp[stream_flag - 1] && rt5514_dsp->buf_size[stream_flag - 1]) {
 
-		if (stream_flag == RT5514_DSP_STREAM_HOTWORD)
+		if (is_adc)
+			schedule_delayed_work(&rt5514_dsp->copy_work_2,
+				msecs_to_jiffies(0));
+		else if (stream_flag == RT5514_DSP_STREAM_HOTWORD)
 			schedule_delayed_work(&rt5514_dsp->copy_work_0,
 				msecs_to_jiffies(0));
 		else if (stream_flag == RT5514_DSP_STREAM_MUSDET)
@@ -372,7 +477,6 @@ static void rt5514_schedule_copy(struct rt5514_dsp *rt5514_dsp)
 				msecs_to_jiffies(0));
 		else
 			return;
-
 	}
 }
 
@@ -393,7 +497,7 @@ static void rt5514_spi_start_work(struct work_struct *work) {
 
 	snd_power_lock(card);
 	if (!snd_power_wait(card, SNDRV_CTL_POWER_D0))
-		rt5514_schedule_copy(rt5514_dsp);
+		rt5514_schedule_copy(rt5514_dsp, false);
 	snd_power_unlock(card);
 }
 
@@ -430,6 +534,10 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 			params_buffer_bytes(hw_params));
 	rt5514_dsp->substream[cpu_dai->id] = substream;
 	rt5514_dsp->dma_offset[cpu_dai->id] = 0;
+
+	if (cpu_dai->id == 2)
+		rt5514_schedule_copy(rt5514_dsp, true);
+
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
 	return ret;
@@ -446,10 +554,19 @@ static int rt5514_spi_hw_free(struct snd_pcm_substream *substream)
 	rt5514_dsp->substream[cpu_dai->id] = NULL;
 	mutex_unlock(&rt5514_dsp->dma_lock);
 
-	if (cpu_dai->id)
+	switch (cpu_dai->id) {
+	case 1:
 		cancel_delayed_work_sync(&rt5514_dsp->copy_work_1);
-	else
+		break;
+
+	case 2:
+		cancel_delayed_work_sync(&rt5514_dsp->copy_work_2);
+		break;
+
+	default:
 		cancel_delayed_work_sync(&rt5514_dsp->copy_work_0);
+		break;
+	}
 
 	rt5514_dsp->stream_flag[cpu_dai->id] = RT5514_DSP_NO_STREAM;
 
@@ -503,6 +620,7 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 	mutex_init(&rt5514_dsp->suspend_lock);
 	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_0, rt5514_spi_copy_work_0);
 	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_1, rt5514_spi_copy_work_1);
+	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_2, rt5514_spi_copy_work_2);
 	INIT_DELAYED_WORK(&rt5514_dsp->start_work, rt5514_spi_start_work);
 	snd_soc_platform_set_drvdata(platform, rt5514_dsp);
 

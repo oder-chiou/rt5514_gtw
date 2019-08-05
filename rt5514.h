@@ -260,11 +260,28 @@ enum {
 	RT5514_PLL1_S_BCLK,
 };
 
+enum {
+	RT5514_DSP_WOV_BOTH,
+	RT5514_DSP_WOV_HOTWORD,
+	RT5514_DSP_WOV_MUSDET,
+	RT5514_DSP_WOV_NON,
+};
+
+enum {
+	RT5514_DSP_FUNC_WOV,
+	RT5514_DSP_FUNC_WOV_SENSOR,
+	RT5514_DSP_FUNC_WOV_I2S,
+	RT5514_DSP_FUNC_WOV_I2S_SENSOR,
+	RT5514_DSP_FUNC_SUSPEND,
+	RT5514_DSP_FUNC_I2S,
+};
+
+
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_codec *codec;
 	struct regmap *i2c_regmap, *regmap;
-	struct clk *mclk, *dsp_calib_clk;
+	struct clk *mclk;
 	int sysclk;
 	int sysclk_src;
 	int lrck;
@@ -272,10 +289,10 @@ struct rt5514_priv {
 	int pll_src;
 	int pll_in;
 	int pll_out;
-	int dsp_enabled, dsp_test;
+	int dsp_enabled, dsp_enabled_last, dsp_test;
+	int dsp_adc_enabled;
 	u8 *hotword_model_buf, *musdet_model_buf;
 	unsigned int hotword_model_len, musdet_model_len;
-	unsigned int pll3_cal_value;
 };
 
 #endif /* __RT5514_H__ */
