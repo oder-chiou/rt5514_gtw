@@ -35,6 +35,8 @@
 
 #include "rt5514-spi.h"
 
+#define DRV_NAME "rt5514-spi"
+
 static struct spi_device *rt5514_spi;
 static struct mutex spi_lock;
 
@@ -495,10 +497,8 @@ static void rt5514_spi_start_work(struct work_struct *work) {
 	mutex_lock(&rt5514_dsp->suspend_lock);
 	mutex_unlock(&rt5514_dsp->suspend_lock);
 
-	snd_power_lock(card);
 	if (!snd_power_wait(card, SNDRV_CTL_POWER_D0))
 		rt5514_schedule_copy(rt5514_dsp, false);
-	snd_power_unlock(card);
 }
 
 static irqreturn_t rt5514_spi_irq(int irq, void *data)
@@ -525,8 +525,9 @@ static int rt5514_spi_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	struct rt5514_dsp *rt5514_dsp =
-			snd_soc_platform_get_drvdata(rtd->platform);
+		snd_soc_component_get_drvdata(component);
 	int ret;
 
 	mutex_lock(&rt5514_dsp->dma_lock);
@@ -547,8 +548,9 @@ static int rt5514_spi_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	struct rt5514_dsp *rt5514_dsp =
-			snd_soc_platform_get_drvdata(rtd->platform);
+		snd_soc_component_get_drvdata(component);
 
 	mutex_lock(&rt5514_dsp->dma_lock);
 	rt5514_dsp->substream[cpu_dai->id] = NULL;
@@ -579,8 +581,9 @@ static snd_pcm_uframes_t rt5514_spi_pcm_pointer(
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	struct rt5514_dsp *rt5514_dsp =
-		snd_soc_platform_get_drvdata(rtd->platform);
+		snd_soc_component_get_drvdata(component);
 
 	return bytes_to_frames(runtime, rt5514_dsp->dma_offset[cpu_dai->id]);
 }
@@ -590,7 +593,6 @@ static const struct snd_pcm_ops rt5514_spi_pcm_ops = {
 	.hw_params	= rt5514_spi_hw_params,
 	.hw_free	= rt5514_spi_hw_free,
 	.pointer	= rt5514_spi_pcm_pointer,
-	.mmap		= snd_pcm_lib_mmap_vmalloc,
 	.page		= snd_pcm_lib_get_vmalloc_page,
 };
 
@@ -605,12 +607,12 @@ static int rt5514_pcm_parse_dp(struct rt5514_dsp *rt5514_dsp,
 	return 0;
 }
 
-static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
+static int rt5514_spi_pcm_probe(struct snd_soc_component *component)
 {
 	struct rt5514_dsp *rt5514_dsp;
 	int ret;
 
-	rt5514_dsp = devm_kzalloc(platform->dev, sizeof(*rt5514_dsp),
+	rt5514_dsp = devm_kzalloc(component->dev, sizeof(*rt5514_dsp),
 			GFP_KERNEL);
 
 	rt5514_pcm_parse_dp(rt5514_dsp, &rt5514_spi->dev);
@@ -622,7 +624,7 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_1, rt5514_spi_copy_work_1);
 	INIT_DELAYED_WORK(&rt5514_dsp->copy_work_2, rt5514_spi_copy_work_2);
 	INIT_DELAYED_WORK(&rt5514_dsp->start_work, rt5514_spi_start_work);
-	snd_soc_platform_set_drvdata(platform, rt5514_dsp);
+	snd_soc_component_set_drvdata(component, rt5514_dsp);
 
 	if (rt5514_spi->irq) {
 		ret = devm_request_threaded_irq(&rt5514_spi->dev,
@@ -638,13 +640,10 @@ static int rt5514_spi_pcm_probe(struct snd_soc_platform *platform)
 	return 0;
 }
 
-static struct snd_soc_platform_driver rt5514_spi_platform = {
+static struct snd_soc_component_driver rt5514_spi_component = {
+	.name  = DRV_NAME,
 	.probe = rt5514_spi_pcm_probe,
 	.ops = &rt5514_spi_pcm_ops,
-};
-
-static const struct snd_soc_component_driver rt5514_spi_dai_component = {
-	.name		= "rt5514-spi-dai",
 };
 
 /**
@@ -795,14 +794,8 @@ static int rt5514_spi_probe(struct spi_device *spi)
 	rt5514_spi = spi;
 	mutex_init(&spi_lock);
 
-	ret = devm_snd_soc_register_platform(&spi->dev, &rt5514_spi_platform);
-	if (ret < 0) {
-		dev_err(&spi->dev, "Failed to register platform.\n");
-		return ret;
-	}
-
 	ret = devm_snd_soc_register_component(&spi->dev,
-					      &rt5514_spi_dai_component,
+					      &rt5514_spi_component,
 					      rt5514_spi_dai,
 					      ARRAY_SIZE(rt5514_spi_dai));
 	if (ret < 0) {
@@ -817,9 +810,9 @@ static int rt5514_spi_probe(struct spi_device *spi)
 
 static int rt5514_suspend(struct device *dev)
 {
-	struct snd_soc_platform *platform = snd_soc_lookup_platform(dev);
+	struct snd_soc_component *component = snd_soc_lookup_component(dev, DRV_NAME);
 	struct rt5514_dsp *rt5514_dsp =
-		snd_soc_platform_get_drvdata(platform);
+		snd_soc_component_get_drvdata(component);
 	int irq = to_spi_device(dev)->irq;
 
 	if (device_may_wakeup(dev))
@@ -832,9 +825,9 @@ static int rt5514_suspend(struct device *dev)
 
 static int rt5514_resume(struct device *dev)
 {
-	struct snd_soc_platform *platform = snd_soc_lookup_platform(dev);
+	struct snd_soc_component *component = snd_soc_lookup_component(dev, DRV_NAME);
 	struct rt5514_dsp *rt5514_dsp =
-		snd_soc_platform_get_drvdata(platform);
+		snd_soc_component_get_drvdata(component);
 	int irq = to_spi_device(dev)->irq;
 
 	if (device_may_wakeup(dev))

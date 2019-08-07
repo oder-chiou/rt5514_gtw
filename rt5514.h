@@ -279,7 +279,7 @@ enum {
 
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *component;
 	struct regmap *i2c_regmap, *regmap;
 	struct clk *mclk;
 	int sysclk;
