@@ -744,6 +744,20 @@ static int rt5514_dsp_func_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt5514_hw_ver_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	unsigned int val;
+
+	regmap_read(rt5514->regmap, RT5514_VENDOR_ID2, &val);
+
+	ucontrol->value.integer.value[0] = (val != RT5514_DEVICE_ID);
+
+	return 0;
+}
+
 static int rt5514_hotword_model_put(struct snd_kcontrol *kcontrol,
 		const unsigned int __user *bytes, unsigned int size)
 {
@@ -835,6 +849,8 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_dsp_frame_flag_get, NULL),
 	SOC_SINGLE_EXT("DSP Test", SND_SOC_NOPM, 0, 1, 0,
 		rt5514_dsp_test_get, rt5514_dsp_test_put),
+	SOC_SINGLE_EXT("HW Version", SND_SOC_NOPM, 0, 1, 0,
+		rt5514_hw_ver_get, NULL),
 };
 
 /* ADC Mixer*/
