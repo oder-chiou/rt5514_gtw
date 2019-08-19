@@ -295,4 +295,6 @@ struct rt5514_priv {
 	unsigned int hotword_model_len, musdet_model_len;
 };
 
+int rt5514_set_gpio(int gpio, bool output);
+
 #endif /* __RT5514_H__ */

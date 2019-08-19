@@ -35,6 +35,8 @@
 #include "rt5514-spi.h"
 #endif
 
+struct regmap *g_i2c_regmap;
+
 static const struct reg_sequence rt5514_i2c_patch[] = {
 	{0x1800101c, 0x00000000},
 	{0x18001100, 0x0000031f},
@@ -121,6 +123,22 @@ static const struct reg_default rt5514_reg[] = {
 	{RT5514_VENDOR_ID1,		0x00000001},
 	{RT5514_VENDOR_ID2,		0x10ec5514},
 };
+
+int rt5514_set_gpio(int gpio, bool output)
+{
+	switch (gpio) {
+	case 5:
+		regmap_update_bits(g_i2c_regmap, 0x18002070, 1 << 8, 1 << 8);
+		regmap_update_bits(g_i2c_regmap, 0x18002074, 1 << 21 | 1 << 22,
+			output << 21 | 1 << 22);
+		break;
+
+	default:
+		break;
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(rt5514_set_gpio);
 
 static void rt5514_enable_dsp_prepare(struct rt5514_priv *rt5514)
 {
@@ -1696,6 +1714,8 @@ static int rt5514_i2c_probe(struct i2c_client *i2c,
 			ret);
 		return ret;
 	}
+
+	g_i2c_regmap = rt5514->i2c_regmap;
 
 	rt5514->regmap = devm_regmap_init(&i2c->dev, NULL, i2c, &rt5514_regmap);
 	if (IS_ERR(rt5514->regmap)) {
