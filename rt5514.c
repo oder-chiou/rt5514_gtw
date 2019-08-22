@@ -35,7 +35,9 @@
 #include "rt5514-spi.h"
 #endif
 
-struct regmap *g_i2c_regmap;
+struct regmap *rt5514_g_i2c_regmap;
+EXPORT_SYMBOL_GPL(rt5514_g_i2c_regmap);
+struct rt5514_priv *g_rt5514;
 
 static const struct reg_sequence rt5514_i2c_patch[] = {
 	{0x1800101c, 0x00000000},
@@ -128,8 +130,8 @@ int rt5514_set_gpio(int gpio, bool output)
 {
 	switch (gpio) {
 	case 5:
-		regmap_update_bits(g_i2c_regmap, 0x18002070, 1 << 8, 1 << 8);
-		regmap_update_bits(g_i2c_regmap, 0x18002074, 1 << 21 | 1 << 22,
+		regmap_update_bits(rt5514_g_i2c_regmap, 0x18002070, 1 << 8, 1 << 8);
+		regmap_update_bits(rt5514_g_i2c_regmap, 0x18002074, 1 << 21 | 1 << 22,
 			output << 21 | 1 << 22);
 		break;
 
@@ -415,10 +417,13 @@ static int rt5514_dsp_func_select(struct rt5514_priv *rt5514){
 	return 0;
 }
 
-static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc)
+static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_watchdog)
 {
 	struct snd_soc_component *component = rt5514->component;
 	const struct firmware *fw = NULL;
+
+	if (is_watchdog)
+		goto watchdog;
 
 	if (is_adc) {
 		if (rt5514->dsp_enabled) {
@@ -470,6 +475,8 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc)
 			return 0;
 		}
 	}
+
+watchdog:
 
 	dev_dbg(component->dev, "dsp_enabled = %d, dsp_adc_enabled = %d\n",
 		rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
@@ -637,6 +644,15 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc)
 	return 0;
 }
 
+void rt5514_watchdog_handler(void)
+{
+	regmap_multi_reg_write(rt5514_g_i2c_regmap,
+		rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+
+	rt5514_dsp_enable(g_rt5514, false, true);
+}
+EXPORT_SYMBOL_GPL(rt5514_watchdog_handler);
+
 static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
@@ -650,7 +666,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 		rt5514->dsp_enabled_last = rt5514->dsp_enabled;
 		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
-		rt5514_dsp_enable(rt5514, false);
+		rt5514_dsp_enable(rt5514, false, false);
 	} else {
 		if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
 			if (!ucontrol->value.integer.value[0] && !rt5514->dsp_adc_enabled) {
@@ -705,7 +721,7 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 
 	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
 		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
-		rt5514_dsp_enable(rt5514, true);
+		rt5514_dsp_enable(rt5514, true, false);
 	} else {
 		if (rt5514->dsp_enabled) {
 			rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
@@ -1715,7 +1731,8 @@ static int rt5514_i2c_probe(struct i2c_client *i2c,
 		return ret;
 	}
 
-	g_i2c_regmap = rt5514->i2c_regmap;
+	rt5514_g_i2c_regmap = rt5514->i2c_regmap;
+	g_rt5514 = rt5514;
 
 	rt5514->regmap = devm_regmap_init(&i2c->dev, NULL, i2c, &rt5514_regmap);
 	if (IS_ERR(rt5514->regmap)) {
