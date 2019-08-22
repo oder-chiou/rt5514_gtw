@@ -446,9 +446,9 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_wa
 	} else {
 		if (rt5514->dsp_adc_enabled ||
 			(rt5514->dsp_enabled && rt5514->dsp_enabled_last > 0)) {
-			if (rt5514->dsp_enabled < 5) {
-				rt5514_dsp_func_select(rt5514);
+			rt5514_dsp_func_select(rt5514);
 
+			if (rt5514->dsp_enabled < 5) {
 				if (rt5514->dsp_enabled_last == 5) {
 					if (rt5514->dsp_adc_enabled)
 						regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
