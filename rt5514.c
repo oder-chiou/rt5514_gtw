@@ -658,9 +658,6 @@ static int rt5514_hotword_model_put(struct snd_kcontrol *kcontrol,
 		}
 	}
 
-	/* Skips the TLV header. */
-	bytes += 2;
-
 	if (copy_from_user(rt5514->hotword_model_buf, bytes, size))
 		ret = -EFAULT;
 done:
@@ -686,9 +683,6 @@ static int rt5514_musdet_model_put(struct snd_kcontrol *kcontrol,
 			goto done;
 		}
 	}
-
-	/* Skips the TLV header. */
-	bytes += 2;
 
 	if (copy_from_user(rt5514->musdet_model_buf, bytes, size))
 		ret = -EFAULT;
@@ -1052,6 +1046,22 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	if (rt5514->dsp_enabled) {
 		regmap_write(rt5514->i2c_regmap, 0x18002fb0, 2);
 		regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+
+		switch (params_format(params)) {
+		case SNDRV_PCM_FORMAT_S16_LE:
+			regmap_update_bits(rt5514->i2c_regmap, 0x18002010, 0x3,
+				0x0);
+			break;
+
+		case SNDRV_PCM_FORMAT_S24_LE:
+			regmap_update_bits(rt5514->i2c_regmap, 0x18002010, 0x3,
+				0x2);
+			break;
+
+		default:
+			return -EINVAL;
+		}
+
 		return 0;
 	}
 
