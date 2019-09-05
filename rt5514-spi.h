@@ -56,15 +56,15 @@ enum {
 #define RT5514_DBG_BUF_CNT  0x1f // (DBG_BUF_SIZE-2*4)/8
 
 typedef struct _dbgBuf_Unit{
-     unsigned int id : 8;
-     unsigned int ts : 24;
-     unsigned int val;
+	unsigned int id : 8;
+	unsigned int ts : 24;
+	unsigned int val;
 } DBGBUF_UNIT;
 
 typedef struct _dbgBuf_Mem {
-     DBGBUF_UNIT unit[RT5514_DBG_BUF_CNT];
-     unsigned int reserve;
-     unsigned int idx;
+	DBGBUF_UNIT unit[RT5514_DBG_BUF_CNT];
+	unsigned int reserve;
+	unsigned int idx;
 } RT5514_DBGBUF_MEM;
 
 int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len);

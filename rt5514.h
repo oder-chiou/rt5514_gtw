@@ -248,6 +248,8 @@
 #define RT5514_FIRMWARE3	"rt5514_dsp_fw3.bin"
 #define RT5514_FIRMWARE4	"rt5514_dsp_fw4.bin"
 
+#define AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE (128)
+
 /* System Clock Source */
 enum {
 	RT5514_SCLK_S_MCLK,
@@ -276,6 +278,11 @@ enum {
 	RT5514_DSP_FUNC_I2S,
 };
 
+typedef struct _payload_st {
+	unsigned int size;
+	unsigned int status;
+	char data[AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE];
+} RT5514_PAYLOAD;
 
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
@@ -293,6 +300,7 @@ struct rt5514_priv {
 	int dsp_adc_enabled, dsp_buffer_channel;
 	u8 *hotword_model_buf, *musdet_model_buf;
 	unsigned int hotword_model_len, musdet_model_len;
+	RT5514_PAYLOAD payload;
 };
 
 int rt5514_set_gpio(int gpio, bool output);
