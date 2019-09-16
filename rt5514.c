@@ -786,7 +786,6 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_dsp_test_get, rt5514_dsp_test_put),
 	SND_SOC_BYTES_TLV("Ambient Payload", sizeof(RT5514_PAYLOAD),
 		rt5514_ambient_payload_get, rt5514_ambient_payload_put),
-
 	SND_SOC_BYTES_TLV("Ambient Process Payload", sizeof(RT5514_PAYLOAD),
 		rt5514_ambient_process_payload_get, NULL),
 };
