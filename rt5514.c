@@ -736,6 +736,33 @@ static int rt5514_ambient_payload_get(struct snd_kcontrol *kcontrol,
 	return ret;
 }
 
+static int rt5514_ambient_process_payload_get(struct snd_kcontrol *kcontrol,
+		unsigned int __user *bytes, unsigned int size)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	struct snd_soc_codec *codec = rt5514->codec;
+	int ret = 0;
+	unsigned int payload_addr;
+
+	if (size != sizeof(RT5514_PAYLOAD))
+		return -EINVAL;
+
+	regmap_read(rt5514->i2c_regmap, 0x18002fe0, &payload_addr);
+	regmap_read(rt5514->i2c_regmap, 0x18002fe4, &rt5514->payload.size);
+
+	if ((payload_addr & 0xfff00000) == 0x4ff00000)
+		rt5514_spi_burst_read(payload_addr, (u8 *)&rt5514->payload.data,
+			AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE);
+
+	if (copy_to_user(bytes, &rt5514->payload, sizeof(RT5514_PAYLOAD))) {
+		dev_warn(codec->dev, "%s(), copy_to_user fail\n", __func__);
+		ret = -EFAULT;
+	}
+
+	return ret;
+}
+
 static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 	SOC_DOUBLE_TLV("MIC Boost Volume", RT5514_ANA_CTRL_MICBST,
 		RT5514_SEL_BSTL_SFT, RT5514_SEL_BSTR_SFT, 8, 0, bst_tlv),
@@ -759,6 +786,9 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_dsp_test_get, rt5514_dsp_test_put),
 	SND_SOC_BYTES_TLV("Ambient Payload", sizeof(RT5514_PAYLOAD),
 		rt5514_ambient_payload_get, rt5514_ambient_payload_put),
+
+	SND_SOC_BYTES_TLV("Ambient Process Payload", sizeof(RT5514_PAYLOAD),
+		rt5514_ambient_process_payload_get, NULL),
 };
 
 /* ADC Mixer*/
