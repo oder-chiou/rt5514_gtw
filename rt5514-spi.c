@@ -959,9 +959,6 @@ static int rt5514_spi_probe(struct spi_device *spi)
 
 static int rt5514_suspend(struct device *dev)
 {
-	struct snd_soc_component *component = snd_soc_lookup_component(dev, DRV_NAME);
-	struct rt5514_dsp *rt5514_dsp =
-		snd_soc_component_get_drvdata(component);
 	int irq = to_spi_device(dev)->irq;
 
 	if (device_may_wakeup(dev))
@@ -972,9 +969,6 @@ static int rt5514_suspend(struct device *dev)
 
 static int rt5514_resume(struct device *dev)
 {
-	struct snd_soc_component *component = snd_soc_lookup_component(dev, DRV_NAME);
-	struct rt5514_dsp *rt5514_dsp =
-		snd_soc_component_get_drvdata(component);
 	int irq = to_spi_device(dev)->irq;
 
 	if (device_may_wakeup(dev))
