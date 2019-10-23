@@ -915,7 +915,6 @@ static int rt5514_ambient_process_payload_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
-	struct snd_soc_codec *codec = rt5514->codec;
 	int ret = 0;
 	unsigned int payload_addr;
 
@@ -930,7 +929,7 @@ static int rt5514_ambient_process_payload_get(struct snd_kcontrol *kcontrol,
 			AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE);
 
 	if (copy_to_user(bytes, &rt5514->payload, sizeof(RT5514_PAYLOAD))) {
-		dev_warn(codec->dev, "%s(), copy_to_user fail\n", __func__);
+		dev_warn(component->dev, "%s(), copy_to_user fail\n", __func__);
 		ret = -EFAULT;
 	}
 
