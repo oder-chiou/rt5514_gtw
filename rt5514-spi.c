@@ -896,8 +896,10 @@ int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 
 	write_buf = kmalloc(RT5514_SPI_BUF_LEN + 6, GFP_KERNEL);
 
-	if (write_buf == NULL)
+	if (write_buf == NULL) {
+		mutex_unlock(&spi_lock);
 		return -ENOMEM;
+	}
 
 	while (offset < len) {
 		if (offset + RT5514_SPI_BUF_LEN <= len)
