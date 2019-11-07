@@ -228,6 +228,8 @@ static bool rt5514_readable_register(struct device *dev, unsigned int reg)
 	case RT5514_ANA_CTRL_INBUF:
 	case RT5514_ANA_CTRL_VREF:
 	case RT5514_ANA_CTRL_PLL3:
+	case RT5514_ANA_CTRL_PLL2_1:
+	case RT5514_ANA_CTRL_PLL2_2:
 	case RT5514_ANA_CTRL_PLL1_1:
 	case RT5514_ANA_CTRL_PLL1_2:
 	case RT5514_DMIC_LP_CTRL:
@@ -1156,8 +1158,16 @@ static int rt5514_i2s_use_asrc(struct snd_soc_dapm_widget *source,
 {
 	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(source->dapm);
 	struct rt5514_priv *rt5514 = snd_soc_codec_get_drvdata(codec);
+	int ret = (rt5514->sysclk > rt5514->lrck * 384);
 
-	return (rt5514->sysclk > rt5514->lrck * 384);
+	if (ret && rt5514->v_p) {
+		regmap_update_bits(rt5514->regmap, RT5514_CLK_CTRL2,
+			RT5514_CLK_SYS_DIV_OUT_MASK | RT5514_SEL_ADC_OSR_MASK,
+			0 << RT5514_CLK_SYS_DIV_OUT_SFT |
+			0 << RT5514_SEL_ADC_OSR_SFT);
+	}
+
+	return ret;
 }
 
 static int rt5514_is_not_dsp_enabled(struct snd_soc_dapm_widget *source,
