@@ -450,6 +450,7 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_wa
 {
 	struct snd_soc_component *component = rt5514->component;
 	const struct firmware *fw = NULL;
+	unsigned int val;
 
 	if (is_watchdog)
 		goto watchdog;
@@ -650,16 +651,41 @@ watchdog:
 
 		usleep_range(10000, 10005);
 
-		if (rt5514->dsp_adc_enabled) {
-			regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-				RT5514_DSP_FUNC_WOV_SENSOR);
+		if (is_watchdog && snd_soc_component_get_bias_level(component)){
+			if (rt5514->dsp_adc_enabled) {
+				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+					RT5514_DSP_FUNC_WOV_I2S_SENSOR);
+			} else {
+				if (rt5514->dsp_enabled < 5)
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_WOV_I2S);
+				else
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_I2S);
+			}
+
+			regmap_read(rt5514->regmap, RT5514_DOWNFILTER0_CTRL1, &val);
+			regmap_write(rt5514->regmap, RT5514_DOWNFILTER0_CTRL1, val);
+			regmap_read(rt5514->regmap, RT5514_DOWNFILTER0_CTRL2, &val);
+			regmap_write(rt5514->regmap, RT5514_DOWNFILTER0_CTRL2, val);
+			regmap_read(rt5514->regmap, RT5514_DOWNFILTER1_CTRL1, &val);
+			regmap_write(rt5514->regmap, RT5514_DOWNFILTER1_CTRL1, val);
+			regmap_read(rt5514->regmap, RT5514_DOWNFILTER1_CTRL2, &val);
+			regmap_write(rt5514->regmap, RT5514_DOWNFILTER1_CTRL2, val);
+			regmap_read(rt5514->regmap, RT5514_DOWNFILTER2_CTRL1, &val);
+			regmap_write(rt5514->regmap, RT5514_DOWNFILTER2_CTRL1, val);
 		} else {
-			if (rt5514->dsp_enabled < 5)
+			if (rt5514->dsp_adc_enabled) {
 				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-					RT5514_DSP_FUNC_WOV);
-			else
-				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-					RT5514_DSP_FUNC_SUSPEND);
+					RT5514_DSP_FUNC_WOV_SENSOR);
+			} else {
+				if (rt5514->dsp_enabled < 5)
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_WOV);
+				else
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_SUSPEND);
+			}
 		}
 
 		regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
@@ -840,7 +866,7 @@ static int rt5514_hw_reset_set(struct snd_kcontrol *kcontrol,
 		gpiod_set_value(rt5514->gpiod_reset, 0);
 		usleep_range(1000, 2000);
 		gpiod_set_value(rt5514->gpiod_reset, 1);
-		rt5514_dsp_enable(g_rt5514, false, true);
+		rt5514_dsp_enable(rt5514, false, true);
 	}
 
 	return 0;
