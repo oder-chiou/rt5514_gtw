@@ -64,7 +64,7 @@ static const struct reg_sequence rt5514_i2c_patch[] = {
 };
 
 static const struct reg_sequence rt5514_patch[] = {
-	{RT5514_DIG_IO_CTRL,		0x00000040},
+	{RT5514_DIG_IO_CTRL,		0x00000140},
 	{RT5514_CLK_CTRL1,		0x380200c1},
 	{RT5514_SRC_CTRL,		0x44000eee},
 	{RT5514_ANA_CTRL_LDO10,		0x00028704},
@@ -86,7 +86,7 @@ static const struct reg_default rt5514_reg[] = {
 	{RT5514_I2S_CTRL2,		0x20000000},
 	{RT5514_VAD_CTRL6,		0xc00007d2},
 	{RT5514_EXT_VAD_CTRL,		0x80000080},
-	{RT5514_DIG_IO_CTRL,		0x00000040},
+	{RT5514_DIG_IO_CTRL,		0x00000140},
 	{RT5514_PAD_CTRL1,		0x00804000},
 	{RT5514_DMIC_DATA_CTRL,		0x00000005},
 	{RT5514_DIG_SOURCE_CTRL,	0x00000002},
@@ -133,9 +133,13 @@ int rt5514_set_gpio(int gpio, bool output)
 {
 	switch (gpio) {
 	case 5:
-		regmap_update_bits(rt5514_g_i2c_regmap, 0x18002070, 1 << 8, 1 << 8);
-		regmap_update_bits(rt5514_g_i2c_regmap, 0x18002074, 1 << 21 | 1 << 22,
+		regmap_write(rt5514_g_i2c_regmap, 0x18002070, 0x000c0140);
+		regmap_write(rt5514_g_i2c_regmap, 0x18002074,
 			output << 21 | 1 << 22);
+		regmap_write(rt5514_g_i2c_regmap, 0x18002070, 0x00000140);
+		break;
+	case 50:
+		regmap_write(rt5514_g_i2c_regmap, 0x18001014, output ? 8 : 4);
 		break;
 
 	default:
@@ -159,7 +163,7 @@ static void rt5514_enable_dsp_prepare(struct rt5514_priv *rt5514)
 	/* I2C bypass disable */
 	regmap_write(rt5514->i2c_regmap, 0xfafafafa, 0x00000000);
 	/* PIN config */
-	regmap_write(rt5514->i2c_regmap, 0x18002070, 0x00000040);
+	regmap_write(rt5514->i2c_regmap, 0x18002070, 0x00000140);
 	/* PLL3(QN)=RCOSC*(22+2) */
 	regmap_write(rt5514->i2c_regmap, 0x18002240, 0x00000016);
 	/* PLL3 source=RCOSC, fsi=rt_clk */
