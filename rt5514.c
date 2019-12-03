@@ -1023,6 +1023,9 @@ static int rt5514_mem_test_get(struct snd_kcontrol *kcontrol,
 	if (!rt5514->v_p)
 		return 0;
 
+	if (!rt5514->dsp_test)
+		return 0;
+
 	regmap_multi_reg_write(rt5514->i2c_regmap,
 		rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
 	rt5514_enable_dsp_prepare(rt5514);
