@@ -164,6 +164,7 @@ static const unsigned int rt5514_regdump_table2[] = {
 	0x18002fd0, 0x18002fd4, 0x18002fd8, 0x18002fdc, 0x18002fe0,
 	0x18002fe4, 0x18002fe8, 0x18002fec, 0x18002ff0, 0x18002ff4,
 };
+
 static bool rt5514_watchdog_dbg_info(struct rt5514_dsp *rt5514_dsp)
 {
 	RT5514_DBGBUF_MEM dbgbuf;
@@ -174,8 +175,13 @@ static bool rt5514_watchdog_dbg_info(struct rt5514_dsp *rt5514_dsp)
 	if (!(val[0] & 0x2))
 		return false;
 
-	rt5514_spi_burst_read(RT5514_DBG_BUF_ADDR, (u8 *)&dbgbuf,
-		RT5514_DBG_BUF_SIZE);
+	regmap_read(rt5514_g_i2c_regmap, RT5514_VENDOR_ID1, &val[0]);
+	if (val[0] == 0x80)
+		val[1] = 0x4fe00000;
+	else
+		val[1] = 0x4ff60000;
+
+	rt5514_spi_burst_read(val[1], (u8 *)&dbgbuf, RT5514_DBG_BUF_SIZE);
 
 	dev_err(rt5514_dsp->dev, "[DSP Dump]");
 	for (i = 0; i < RT5514_DBG_BUF_CNT; i++)
