@@ -1080,6 +1080,26 @@ static int rt5514_ambient_hotword_version_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt5514_firmware_version_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	const struct firmware *fw;
+	RT5514_DSP_FW_VER dsp_fw_ver;
+
+	request_firmware(&fw, rt5514->fw_name[0], component->dev);
+	if (fw) {
+		memcpy(&dsp_fw_ver, fw->data + 0x100, sizeof(RT5514_DSP_FW_VER));
+		release_firmware(fw);
+		dev_info(component->dev, "DSP Firmware Version: %d.%d.%d.%d\n",
+			dsp_fw_ver.chip_id, dsp_fw_ver.feature_id,
+			dsp_fw_ver.version, dsp_fw_ver.sub_version);
+	}
+
+	return 0;
+}
+
 static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 	SOC_DOUBLE_TLV("MIC Boost Volume", RT5514_ANA_CTRL_MICBST,
 		RT5514_SEL_BSTL_SFT, RT5514_SEL_BSTR_SFT, 8, 0, bst_tlv),
@@ -1132,6 +1152,8 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_ambient_process_payload_get, NULL),
 	SOC_SINGLE_EXT("Ambient Hotword Version", SND_SOC_NOPM, 0, 0x7fffffff,
 		0, rt5514_ambient_hotword_version_get, NULL),
+	SOC_SINGLE_EXT("DSP Firmware Version", SND_SOC_NOPM, 0, 0x7fffffff,
+		0, rt5514_firmware_version_get, NULL),
 };
 
 /* ADC Mixer*/
