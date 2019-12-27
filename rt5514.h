@@ -299,6 +299,13 @@ typedef struct _payload_st {
 	char data[AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE];
 } RT5514_PAYLOAD;
 
+typedef struct _dsp_fw_ver_st {
+	unsigned short chip_id;
+	unsigned short feature_id;
+	unsigned short version;
+	unsigned short sub_version;
+} RT5514_DSP_FW_VER;
+
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_component *component;
