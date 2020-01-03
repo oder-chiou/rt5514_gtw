@@ -327,6 +327,7 @@ struct rt5514_priv {
 	bool v_p;
 	char *fw_name[4];
 	unsigned int fw_addr[4];
+	bool is_streaming;
 };
 
 int rt5514_set_gpio(int gpio, bool output);

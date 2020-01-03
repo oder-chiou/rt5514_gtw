@@ -639,7 +639,7 @@ watchdog:
 
 		usleep_range(10000, 10005);
 
-		if (is_watchdog && snd_soc_component_get_bias_level(component)){
+		if (is_watchdog && rt5514->is_streaming){
 			if (rt5514->dsp_adc_enabled) {
 				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
 					RT5514_DSP_FUNC_WOV_I2S_SENSOR);
@@ -717,7 +717,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 	if (ucontrol->value.integer.value[0] == rt5514->dsp_enabled)
 		return 0;
 
-	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+	if (!rt5514->is_streaming) {
 		rt5514->dsp_enabled_last = rt5514->dsp_enabled;
 		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
@@ -774,7 +774,7 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 	if (ucontrol->value.integer.value[0] == rt5514->dsp_adc_enabled)
 		return 0;
 
-	if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
+	if (!rt5514->is_streaming) {
 		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
 		rt5514_dsp_enable(rt5514, true, false);
 	} else {
@@ -1507,6 +1507,8 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	int pre_div, bclk_ms, frame_size;
 	unsigned int val_len = 0;
 
+	rt5514->is_streaming = true;
+
 	if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
 		if (rt5514->dsp_adc_enabled) {
 			regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
@@ -1595,6 +1597,8 @@ static int rt5514_hw_free(struct snd_pcm_substream  *substream,
 {
 	struct snd_soc_component *component = dai->component;
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+
+	rt5514->is_streaming = false;
 
 	if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
 		if (rt5514->dsp_adc_enabled) {
