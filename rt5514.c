@@ -893,6 +893,20 @@ static int rt5514_hotword_model_put(struct snd_kcontrol *kcontrol,
 		ret = -EFAULT;
 done:
 	rt5514->hotword_model_len = (ret ? 0 : size);
+
+	if (rt5514->dsp_enabled || rt5514->dsp_adc_enabled) {
+		if (rt5514->gpiod_reset) {
+			gpiod_set_value(rt5514->gpiod_reset, 0);
+			usleep_range(1000, 2000);
+			gpiod_set_value(rt5514->gpiod_reset, 1);
+		} else {
+			regmap_multi_reg_write(rt5514->i2c_regmap,
+				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+		}
+
+		rt5514_dsp_enable(rt5514, false, true);
+	}
+
 	return ret;
 }
 
@@ -918,6 +932,20 @@ static int rt5514_musdet_model_put(struct snd_kcontrol *kcontrol,
 		ret = -EFAULT;
 done:
 	rt5514->musdet_model_len = (ret ? 0 : size);
+
+	if (rt5514->dsp_enabled || rt5514->dsp_adc_enabled) {
+		if (rt5514->gpiod_reset) {
+			gpiod_set_value(rt5514->gpiod_reset, 0);
+			usleep_range(1000, 2000);
+			gpiod_set_value(rt5514->gpiod_reset, 1);
+		} else {
+			regmap_multi_reg_write(rt5514->i2c_regmap,
+				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+		}
+
+		rt5514_dsp_enable(rt5514, false, true);
+	}
+
 	return ret;
 }
 
