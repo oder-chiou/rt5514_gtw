@@ -947,6 +947,79 @@ int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 }
 EXPORT_SYMBOL_GPL(rt5514_spi_burst_write);
 
+int rt5514_spi_read(unsigned int addr, unsigned int *val)
+{
+	struct spi_device *spi = rt5514_spi;
+	struct spi_message message;
+	struct spi_transfer x[3];
+	u8 spi_cmd = RT5514_SPI_CMD_32_READ;
+	int status;
+	u8 write_buf[5];
+	u8 read_buf[4];
+
+	mutex_lock(&spi_lock);
+
+	write_buf[0] = spi_cmd;
+	write_buf[1] = (addr & 0xff000000) >> 24;
+	write_buf[2] = (addr & 0x00ff0000) >> 16;
+	write_buf[3] = (addr & 0x0000ff00) >> 8;
+	write_buf[4] = (addr & 0x000000ff) >> 0;
+
+	spi_message_init(&message);
+	memset(x, 0, sizeof(x));
+
+	x[0].len = 5;
+	x[0].tx_buf = write_buf;
+	spi_message_add_tail(&x[0], &message);
+
+	x[1].len = 4;
+	x[1].tx_buf = write_buf;
+	spi_message_add_tail(&x[1], &message);
+
+	x[2].len = 4;
+	x[2].rx_buf = read_buf;
+	spi_message_add_tail(&x[2], &message);
+
+	status = spi_sync(spi, &message);
+
+	*val = read_buf[3] | read_buf[2] << 8 | read_buf[1] << 16 |
+		read_buf[0] << 24;
+
+	mutex_unlock(&spi_lock);
+	return status;
+}
+EXPORT_SYMBOL_GPL(rt5514_spi_read);
+
+int rt5514_spi_write(unsigned int addr, unsigned int val)
+{
+	struct spi_device *spi = rt5514_spi;
+	u8 spi_cmd = RT5514_SPI_CMD_32_WRITE;
+	int status;
+	u8 write_buf[10];
+
+	mutex_lock(&spi_lock);
+
+	write_buf[0] = spi_cmd;
+	write_buf[1] = (addr & 0xff000000) >> 24;
+	write_buf[2] = (addr & 0x00ff0000) >> 16;
+	write_buf[3] = (addr & 0x0000ff00) >> 8;
+	write_buf[4] = (addr & 0x000000ff) >> 0;
+	write_buf[5] = (val & 0xff000000) >> 24;
+	write_buf[6] = (val & 0x00ff0000) >> 16;
+	write_buf[7] = (val & 0x0000ff00) >> 8;
+	write_buf[8] = (val & 0x000000ff) >> 0;
+	write_buf[9] = spi_cmd;
+
+	status = spi_write(spi, write_buf, sizeof(write_buf));
+
+	if (status)
+		dev_err(&spi->dev, "%s error %d\n", __FUNCTION__, status);
+
+	mutex_unlock(&spi_lock);
+	return status;
+}
+EXPORT_SYMBOL_GPL(rt5514_spi_write);
+
 static int rt5514_spi_probe(struct spi_device *spi)
 {
 	int ret;
