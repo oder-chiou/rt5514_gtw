@@ -1115,6 +1115,7 @@ static int rt5514_firmware_version_get(struct snd_kcontrol *kcontrol,
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 	const struct firmware *fw;
 	RT5514_DSP_FW_VER dsp_fw_ver;
+	RT5514_DSP_MEM dsp_mem;
 
 	request_firmware(&fw, rt5514->fw_name[0], component->dev);
 	if (fw) {
@@ -1123,6 +1124,13 @@ static int rt5514_firmware_version_get(struct snd_kcontrol *kcontrol,
 		dev_info(component->dev, "DSP Firmware Version: %d.%d.%d.%d\n",
 			dsp_fw_ver.chip_id, dsp_fw_ver.feature_id,
 			dsp_fw_ver.version, dsp_fw_ver.sub_version);
+	}
+
+	if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
+		rt5514_spi_burst_read(rt5514->fw_addr[0] + 0x128,
+			(u8 *)&dsp_mem, sizeof(RT5514_DSP_MEM));
+		dev_info(component->dev, "IRAM: %d DRAM: %d\n",
+			dsp_mem.iram, dsp_mem.dram);
 	}
 
 	return 0;
