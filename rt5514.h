@@ -306,6 +306,11 @@ typedef struct _dsp_fw_ver_st {
 	unsigned short sub_version;
 } RT5514_DSP_FW_VER;
 
+typedef struct _dsp_mem_st {
+	unsigned int iram;
+	unsigned int dram;
+} RT5514_DSP_MEM;
+
 struct rt5514_priv {
 	struct rt5514_platform_data pdata;
 	struct snd_soc_component *component;
