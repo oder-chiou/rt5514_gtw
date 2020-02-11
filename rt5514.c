@@ -857,8 +857,8 @@ static int rt5514_calc_dmic_clk(struct snd_soc_codec *codec, int rate)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(div); i++) {
-		/* find divider that gives DMIC frequency below 3.072MHz */
-		if (3072000 * div[i] >= rate)
+		/* find divider that gives DMIC frequency below 2.048MHz */
+		if (2048000 * div[i] >= rate)
 			return i;
 	}
 
@@ -902,10 +902,7 @@ static int rt5514_is_sys_clk_from_pll(struct snd_soc_dapm_widget *source,
 static int rt5514_i2s_use_asrc(struct snd_soc_dapm_widget *source,
 	struct snd_soc_dapm_widget *sink)
 {
-	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(source->dapm);
-	struct rt5514_priv *rt5514 = snd_soc_codec_get_drvdata(codec);
-
-	return (rt5514->sysclk > rt5514->lrck * 384);
+	return 0;
 }
 
 static int rt5514_is_not_dsp_enabled(struct snd_soc_dapm_widget *source,
