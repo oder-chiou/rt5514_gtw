@@ -176,7 +176,7 @@ static bool rt5514_watchdog_dbg_info(struct rt5514_dsp *rt5514_dsp)
 	if (!(val[0] & 0x2))
 		return false;
 
-	regmap_read(rt5514_g_i2c_regmap, RT5514_VENDOR_ID1, &val[0]);
+	regmap_read(rt5514_g_i2c_regmap, 0x18002ff0, &val[0]);
 	if (val[0] == 0x80)
 		val[1] = 0x4fe00000;
 	else
