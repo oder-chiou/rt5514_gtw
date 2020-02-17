@@ -505,6 +505,10 @@ watchdog:
 
 		request_firmware(&fw, rt5514->fw_name[0], codec->dev);
 		if (fw) {
+			memcpy(&rt5514->sound_model_addr, fw->data, sizeof(unsigned int) * 2);
+			if (rt5514->sound_model_addr[0])
+				rt5514->fw_addr[2] = rt5514->sound_model_addr[0];
+
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 			rt5514_spi_burst_write(rt5514->fw_addr[0], fw->data,
 				fw->size);
@@ -541,6 +545,13 @@ watchdog:
 					"Model load failed %d\n", ret);
 				return ret;
 			}
+
+			if (rt5514->sound_model_addr[0]) {
+				rt5514->fw_addr[3] = rt5514->fw_addr[2] +
+					((rt5514->hotword_model_len/8)+1)*8;
+				rt5514_spi_burst_write(rt5514->fw_addr[0],
+					(const u8 *)&rt5514->fw_addr[2], 8);
+			}
 #else
 			dev_err(codec->dev,
 				"No SPI driver for loading firmware\n");
@@ -556,6 +567,18 @@ watchdog:
 				dev_err(codec->dev,
 					"No SPI driver to load fw\n");
 #endif
+				if (rt5514->sound_model_addr[0]) {
+					rt5514->fw_addr[3] = rt5514->fw_addr[2] +
+						((fw->size/8)+1)*8;
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+					rt5514_spi_burst_write(rt5514->fw_addr[0],
+						(const u8 *)&rt5514->fw_addr[2], 8);
+#else
+					dev_err(component->dev,
+						"No SPI driver to load fw\n");
+#endif
+				}
+
 				release_firmware(fw);
 				fw = NULL;
 			}
