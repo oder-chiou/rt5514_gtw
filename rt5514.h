@@ -335,6 +335,7 @@ struct rt5514_priv {
 	unsigned int fw_addr[4];
 	bool is_streaming;
 	unsigned int sound_model_addr[2];
+	bool load_default_sound_model;
 };
 
 int rt5514_set_gpio(int gpio, bool output);
