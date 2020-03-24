@@ -513,9 +513,16 @@ static int rt5514_dsp_func_select(struct rt5514_priv *rt5514)
 static int rt5514_dsp_status_check(struct rt5514_priv *rt5514)
 {
 	struct snd_soc_codec *codec = rt5514->codec;
-	unsigned int val;
+	unsigned int val, i;
+	
+	for (i = 0; i < 10; i++) {
+		regmap_read(rt5514->i2c_regmap, 0x18001014, &val);
+		if (val == 0)
+			break;
+		else
+			usleep_range(10000, 15000);
+	}
 
-	regmap_read(rt5514->i2c_regmap, 0x18001014, &val);
 	if (val) {
 		rt5514->load_default_sound_model = true;
 
