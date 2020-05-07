@@ -150,8 +150,17 @@ static void rt5514_enable_dsp_prepare(struct rt5514_priv *rt5514)
 	regmap_write(rt5514->i2c_regmap, 0x18002200, 0x00028704);
 	/* PIN config */
 	regmap_write(rt5514->i2c_regmap, 0x18002070, 0x00000140);
-	/* pll3=1.3M*31=40M */
-	regmap_write(rt5514->i2c_regmap, 0x18002240, 0x0000001e);
+
+	if (rt5514->pdata.dsp_40mhz) {
+		/* pll3=1.3M*31=40M */
+		regmap_write(rt5514->i2c_regmap, 0x18002240, 0x0000001e);
+	} else {
+		/* PLL3(QN)=RCOSC*(22+2) */
+		regmap_write(rt5514->i2c_regmap, 0x18002240, 0x00000016);
+		/* Enable DSP clk auto switch */
+		regmap_write(rt5514->i2c_regmap, 0x18001114, 0x00000001);
+	}
+
 	/* PLL3 source=RCOSC, fsi=rt_clk */
 	regmap_write(rt5514->i2c_regmap, 0x18002100, 0x0000000b);
 	/* DSP clk source = pll3, ENABLE DSP clk */
@@ -160,14 +169,17 @@ static void rt5514_enable_dsp_prepare(struct rt5514_priv *rt5514)
 	regmap_write(rt5514->i2c_regmap, 0x18001118, 0x00000001);
 	/* Buffer data mono/stereo */
 	regmap_write(rt5514->i2c_regmap, 0x18002fcc, rt5514->dsp_buffer_channel);
-	/* DFLL reset */
-	regmap_write(rt5514->i2c_regmap, 0x18002124, 0x00220012);
-	/* DFLL, set m/n(1220) */
-	regmap_write(rt5514->i2c_regmap, 0x18002110, 0x000104c4);
-	/* DFLL,reset DFLL */
-	regmap_write(rt5514->i2c_regmap, 0x18002124, 0x80220012);
-	/* DFLL */
-	regmap_write(rt5514->i2c_regmap, 0x18002124, 0xc0220012);
+
+	if (rt5514->pdata.dsp_40mhz) {
+		/* DFLL reset */
+		regmap_write(rt5514->i2c_regmap, 0x18002124, 0x00220012);
+		/* DFLL, set m/n(1220) */
+		regmap_write(rt5514->i2c_regmap, 0x18002110, 0x000104c4);
+		/* DFLL,reset DFLL */
+		regmap_write(rt5514->i2c_regmap, 0x18002124, 0x80220012);
+		/* DFLL */
+		regmap_write(rt5514->i2c_regmap, 0x18002124, 0xc0220012);
+	}
 }
 
 static bool rt5514_volatile_register(struct device *dev, unsigned int reg)
@@ -735,9 +747,12 @@ watchdog:
 			}
 		}
 
-		/* dsp clk=mux_out (40M) */
-		regmap_write(rt5514->i2c_regmap, 0x18002f08,
-			0x0000000b);
+		if (rt5514->pdata.dsp_40mhz) {
+			/* dsp clk=mux_out (40M) */
+			regmap_write(rt5514->i2c_regmap, 0x18002f08,
+				0x0000000b);
+		}
+
 		/* DSP run */
 		regmap_write(rt5514->i2c_regmap, 0x18002f00,
 			0x00055148);
@@ -2174,6 +2189,8 @@ static int rt5514_parse_dp(struct rt5514_priv *rt5514, struct device *dev)
 {
 	device_property_read_u32(dev, "realtek,dmic-init-delay",
 		&rt5514->pdata.dmic_init_delay);
+	rt5514->pdata.dsp_40mhz = device_property_read_bool(dev,
+		"realtek,dsp-40mhz");
 
 	return 0;
 }
