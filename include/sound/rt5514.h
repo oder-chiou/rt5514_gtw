@@ -14,6 +14,7 @@
 
 struct rt5514_platform_data {
 	unsigned int dmic_init_delay;
+	bool dsp_40mhz;
 };
 
 #endif
