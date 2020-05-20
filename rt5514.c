@@ -863,6 +863,7 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 			} else if (rt5514->dsp_enabled == 5) {
 				if (rt5514->dsp_adc_enabled) {
 					dev_warn(codec->dev, "DSP ADC is enabled\n");
+					rt5514_dsp_func_select(rt5514);
 				} else {
 					regmap_write(rt5514->i2c_regmap,
 						RT5514_DSP_FUNC, RT5514_DSP_FUNC_I2S);
