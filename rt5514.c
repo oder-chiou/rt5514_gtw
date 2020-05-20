@@ -605,9 +605,7 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_wa
 				}
 			} else {
 				if (rt5514->dsp_adc_enabled) {
-					dev_warn(component->dev, "Unsupport : %d %d\n",
-						rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
-					rt5514->dsp_enabled = rt5514->dsp_enabled_last;
+					dev_warn(component->dev, "DSP ADC is enabled\n");
 
 					return 0;
 				}
