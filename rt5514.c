@@ -759,15 +759,54 @@ watchdog:
 
 		if (is_watchdog && rt5514->is_streaming){
 			if (rt5514->dsp_adc_enabled) {
-				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-					RT5514_DSP_FUNC_WOV_I2S_SENSOR);
+				switch (rt5514->pcm_rate) {
+				case SNDRV_PCM_RATE_48000:
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_WOV_I2S_SENSOR);
+					break;
+				
+				case SNDRV_PCM_RATE_96000:
+					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+						RT5514_DSP_FUNC_WOV_I2S_96k_SENSOR);
+					break;
+				
+				default:
+					return -EINVAL;
+				}
 			} else {
-				if (rt5514->dsp_enabled < 5)
-					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-						RT5514_DSP_FUNC_WOV_I2S);
-				else
-					regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-						RT5514_DSP_FUNC_I2S);
+				if (rt5514->dsp_enabled < 5) {
+					switch (rt5514->pcm_rate) {
+					case SNDRV_PCM_RATE_48000:
+						regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+							RT5514_DSP_FUNC_WOV_I2S);
+						break;
+					
+					case SNDRV_PCM_RATE_96000:
+						regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+							RT5514_DSP_FUNC_WOV_I2S_96k);
+						break;
+					
+					default:
+						return -EINVAL;
+					}
+
+				} else {
+					switch (rt5514->pcm_rate) {
+					case SNDRV_PCM_RATE_48000:
+						regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+							RT5514_DSP_FUNC_I2S);
+						break;
+					
+					case SNDRV_PCM_RATE_96000:
+						regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+							RT5514_DSP_FUNC_I2S_96k);
+						break;
+					
+					default:
+						return -EINVAL;
+					}
+
+				}
 			}
 
 			regmap_read(rt5514->regmap, RT5514_DOWNFILTER0_CTRL1, &val);
@@ -846,44 +885,10 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 			rt5514->load_default_sound_model = false;
 		}
 	} else {
-		if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
-			if (!ucontrol->value.integer.value[0] && !rt5514->dsp_adc_enabled) {
-				dev_warn(component->dev, "Unsupport : %d %d\n",
-					rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
+		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
-				return 0;
-			}
-
-			rt5514->dsp_enabled_last = rt5514->dsp_enabled;
-			rt5514->dsp_enabled = ucontrol->value.integer.value[0];
-
-			if (rt5514->dsp_enabled < 5 && rt5514->dsp_enabled_last < 5) {
-				rt5514_dsp_func_select(rt5514);
-			} else if (rt5514->dsp_enabled == 5) {
-				if (rt5514->dsp_adc_enabled) {
-					dev_warn(component->dev, "DSP ADC is enabled\n");
-					rt5514_dsp_func_select(rt5514);
-				} else {
-					regmap_write(rt5514->i2c_regmap,
-						RT5514_DSP_FUNC, RT5514_DSP_FUNC_I2S);
-					regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
-				}
-			} else {
-				rt5514_dsp_func_select(rt5514);
-
-				if (rt5514->dsp_adc_enabled)
-					regmap_write(rt5514->i2c_regmap,
-						RT5514_DSP_FUNC, RT5514_DSP_FUNC_WOV_I2S_SENSOR);
-				else
-					regmap_write(rt5514->i2c_regmap,
-						RT5514_DSP_FUNC, RT5514_DSP_FUNC_WOV_I2S);
-
-				regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
-			}
-		} else {
-			dev_warn(component->dev, "Unsupport : %d %d\n",
-				rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
-		}
+		dev_warn(component->dev, "Unsupport : %d %d\n",
+			rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
 	}
 
 	return 0;
@@ -907,26 +912,10 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 			rt5514->load_default_sound_model = false;
 		}
 	} else {
-		if (rt5514->dsp_enabled) {
-			rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
+		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
 
-			if (rt5514->dsp_adc_enabled) {
-				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-					RT5514_DSP_FUNC_WOV_I2S_SENSOR);
-			} else {
-				if (rt5514->dsp_enabled < 5)
-					regmap_write(rt5514->i2c_regmap,
-						RT5514_DSP_FUNC, RT5514_DSP_FUNC_WOV_I2S);
-				else
-					regmap_write(rt5514->i2c_regmap,
-						RT5514_DSP_FUNC, RT5514_DSP_FUNC_I2S);
-			}
-
-			regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
-		} else {
-			dev_warn(component->dev, "Unsupport : %d %d\n",
-				rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
-		}
+		dev_warn(component->dev, "Unsupport : %d %d\n",
+			rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
 	}
 
 	return 0;
@@ -1686,6 +1675,8 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 	if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
 		switch (params_rate(params)) {
 		case 48000:
+			rt5514->pcm_rate = SNDRV_PCM_RATE_48000;
+
 			if (rt5514->dsp_adc_enabled) {
 				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
 					RT5514_DSP_FUNC_WOV_I2S_SENSOR);
@@ -1700,6 +1691,8 @@ static int rt5514_hw_params(struct snd_pcm_substream *substream,
 			break;
 
 		case 96000:
+			rt5514->pcm_rate = SNDRV_PCM_RATE_96000;
+
 			if (rt5514->dsp_adc_enabled) {
 				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
 					RT5514_DSP_FUNC_WOV_I2S_96k_SENSOR);
@@ -1781,6 +1774,8 @@ static int rt5514_hw_free(struct snd_pcm_substream  *substream,
 	rt5514->is_streaming = false;
 
 	if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
+		rt5514_dsp_func_select(rt5514);
+
 		if (rt5514->dsp_adc_enabled) {
 			regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
 				RT5514_DSP_FUNC_WOV_SENSOR);

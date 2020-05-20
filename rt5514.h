@@ -330,6 +330,7 @@ struct rt5514_priv {
 	int pll_out;
 	int dsp_enabled, dsp_enabled_last, dsp_test;
 	int dsp_adc_enabled, dsp_buffer_channel;
+	int pcm_rate;
 	u8 *hotword_model_buf, *musdet_model_buf;
 	unsigned int hotword_model_len, musdet_model_len;
 	RT5514_PAYLOAD payload;
