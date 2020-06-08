@@ -446,7 +446,7 @@ static int rt5514_fw_validate(struct rt5514_priv *rt5514, int index, int addr)
 	u8 *buf;
 
 	switch (index) {
-	case 3:
+	case 2:
 		if (rt5514->hotword_model_buf && rt5514->hotword_model_len &&
 			!rt5514->load_default_sound_model) {
 			buf = kmalloc(((rt5514->hotword_model_len/8)+1)*8, GFP_KERNEL);
@@ -469,7 +469,7 @@ static int rt5514_fw_validate(struct rt5514_priv *rt5514, int index, int addr)
 
 		break;
 
-	case 4:
+	case 3:
 		if (rt5514->musdet_model_buf && rt5514->musdet_model_len &&
 			!rt5514->load_default_sound_model) {
 			buf = kmalloc(((rt5514->musdet_model_len/8)+1)*8, GFP_KERNEL);
