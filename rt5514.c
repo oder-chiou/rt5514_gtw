@@ -625,6 +625,8 @@ watchdog:
 		rt5514->dsp_enabled, rt5514->dsp_adc_enabled);
 
 	if (rt5514->dsp_enabled || rt5514->dsp_adc_enabled) {
+		regmap_multi_reg_write(rt5514->i2c_regmap,
+			rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
 		rt5514_enable_dsp_prepare(rt5514);
 		rt5514_dsp_func_select(rt5514);
 
