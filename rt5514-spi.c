@@ -49,7 +49,7 @@ struct rt5514_dsp {
 	unsigned int buf_base[3], buf_limit[3], buf_rp[3], buf_rp_addr[3];
 	unsigned int stream_flag[2];
 	unsigned int hotword_ignore_ms, musdet_ignore_ms;
-	size_t buf_size[3], get_size[2], dma_offset[3];
+	size_t buf_size[3], get_size[3], dma_offset[3];
 };
 
 static const struct snd_pcm_hardware rt5514_spi_pcm_hardware = {
@@ -249,8 +249,7 @@ static void rt5514_spi_copy_work_0(struct work_struct *work)
 	if (rt5514_dsp->get_size[0] >= rt5514_dsp->buf_size[0]) {
 		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[0], (u8 *)&buf,
 			sizeof(buf));
-		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 |
-					buf[3] << 24;
+		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
 		if ((cur_wp & 0xffe00000) != 0x4fe00000) {
 			schedule_delayed_work(&rt5514_dsp->copy_work_0,
 				msecs_to_jiffies(50));
@@ -337,8 +336,7 @@ static void rt5514_spi_copy_work_1(struct work_struct *work)
 	if (rt5514_dsp->get_size[1] >= rt5514_dsp->buf_size[1]) {
 		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[1], (u8 *)&buf,
 			sizeof(buf));
-		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 |
-					buf[3] << 24;
+		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
 		if ((cur_wp & 0xffe00000) != 0x4fe00000) {
 			schedule_delayed_work(&rt5514_dsp->copy_work_1,
 				msecs_to_jiffies(50));
@@ -422,26 +420,28 @@ static void rt5514_spi_copy_work_2(struct work_struct *work)
 		rt5514_dsp->buf_size[2] = (rt5514_dsp->buf_size[2] / period_bytes) *
 			period_bytes;
 
-	rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[2], (u8 *)&buf,
-		sizeof(buf));
-	cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
-	if ((cur_wp & 0xffe00000) != 0x4fe00000) {
-		schedule_delayed_work(&rt5514_dsp->copy_work_2,
-			msecs_to_jiffies(50));
-		goto done;
-	}
+	if (rt5514_dsp->get_size[2] >= rt5514_dsp->buf_size[2]) {
+		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[2], (u8 *)&buf,
+			sizeof(buf));
+		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
+		if ((cur_wp & 0xffe00000) != 0x4fe00000) {
+			schedule_delayed_work(&rt5514_dsp->copy_work_2,
+				msecs_to_jiffies(50));
+			goto done;
+		}
 
-	if (cur_wp >= rt5514_dsp->buf_rp[2])
-		remain_data = (cur_wp - rt5514_dsp->buf_rp[2]);
-	else
-		remain_data =
-			(rt5514_dsp->buf_limit[2] - rt5514_dsp->buf_rp[2]) +
-			(cur_wp - rt5514_dsp->buf_base[2]);
+		if (cur_wp >= rt5514_dsp->buf_rp[2])
+			remain_data = (cur_wp - rt5514_dsp->buf_rp[2]);
+		else
+			remain_data =
+				(rt5514_dsp->buf_limit[2] - rt5514_dsp->buf_rp[2]) +
+				(cur_wp - rt5514_dsp->buf_base[2]);
 
-	if (remain_data < period_bytes) {
-		schedule_delayed_work(&rt5514_dsp->copy_work_2,
-			msecs_to_jiffies(50));
-		goto done;
+		if (remain_data < period_bytes) {
+			schedule_delayed_work(&rt5514_dsp->copy_work_2,
+				msecs_to_jiffies(50));
+			goto done;
+		}
 	}
 
 	if (rt5514_dsp->buf_rp[2] + period_bytes <= rt5514_dsp->buf_limit[2]) {
@@ -467,6 +467,7 @@ static void rt5514_spi_copy_work_2(struct work_struct *work)
 			truncated_bytes;
 	}
 
+	rt5514_dsp->get_size[2] += period_bytes;
 	rt5514_dsp->dma_offset[2] += period_bytes;
 	if (rt5514_dsp->dma_offset[2] >= runtime->dma_bytes)
 		rt5514_dsp->dma_offset[2] = 0;
