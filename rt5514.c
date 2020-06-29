@@ -429,7 +429,8 @@ static int rt5514_fw_validate(struct rt5514_priv *rt5514, int index, int addr)
 
 	switch (index) {
 	case 3:
-		if (rt5514->hotword_model_buf && rt5514->hotword_model_len) {
+		if (rt5514->hotword_model_buf && rt5514->hotword_model_len &&
+			!rt5514->load_default_sound_model) {
 			buf = kmalloc(((rt5514->hotword_model_len/8)+1)*8, GFP_KERNEL);
 
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
@@ -451,7 +452,8 @@ static int rt5514_fw_validate(struct rt5514_priv *rt5514, int index, int addr)
 		break;
 
 	case 4:
-		if (rt5514->musdet_model_buf && rt5514->musdet_model_len) {
+		if (rt5514->musdet_model_buf && rt5514->musdet_model_len &&
+			!rt5514->load_default_sound_model) {
 			buf = kmalloc(((rt5514->musdet_model_len/8)+1)*8, GFP_KERNEL);
 
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
@@ -506,6 +508,32 @@ static int rt5514_dsp_func_select(struct rt5514_priv *rt5514)
 	}
 
 	return 0;
+}
+
+static int rt5514_dsp_status_check(struct rt5514_priv *rt5514)
+{
+	struct snd_soc_codec *codec = rt5514->codec;
+	unsigned int val;
+
+	regmap_read(rt5514->i2c_regmap, 0x18001014, &val);
+	if (val) {
+		rt5514->load_default_sound_model = true;
+
+		dev_err(codec->dev, "DSP run failure, reset DSP\n");
+
+		if (rt5514->gpiod_reset) {
+			gpiod_set_value(rt5514->gpiod_reset, 0);
+			usleep_range(1000, 2000);
+			gpiod_set_value(rt5514->gpiod_reset, 1);
+		} else {
+			regmap_multi_reg_write(rt5514->i2c_regmap,
+				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+		}
+		regcache_mark_dirty(rt5514->regmap);
+		regcache_sync(rt5514->regmap);
+	}
+
+	return val;
 }
 
 static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_watchdog)
@@ -603,7 +631,8 @@ watchdog:
 #endif
 		}
 
-		if (rt5514->hotword_model_buf && rt5514->hotword_model_len) {
+		if (rt5514->hotword_model_buf && rt5514->hotword_model_len &&
+			!rt5514->load_default_sound_model) {
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 			int ret;
 
@@ -650,7 +679,8 @@ watchdog:
 			}
 		}
 
-		if (rt5514->musdet_model_buf && rt5514->musdet_model_len) {
+		if (rt5514->musdet_model_buf && rt5514->musdet_model_len &&
+			!rt5514->load_default_sound_model) {
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 			int ret;
 
@@ -782,6 +812,11 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 		rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
 		rt5514_dsp_enable(rt5514, false, false);
+
+		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514_dsp_enable(rt5514, false, false);
+			rt5514->load_default_sound_model = false;
+		}
 	} else {
 		if (rt5514->dsp_enabled | rt5514->dsp_adc_enabled) {
 			if (!ucontrol->value.integer.value[0] && !rt5514->dsp_adc_enabled) {
@@ -838,6 +873,11 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 	if (!rt5514->is_streaming) {
 		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
 		rt5514_dsp_enable(rt5514, true, false);
+
+		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514_dsp_enable(rt5514, true, false);
+			rt5514->load_default_sound_model = false;
+		}
 	} else {
 		if (rt5514->dsp_enabled) {
 			rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
@@ -967,6 +1007,11 @@ done:
 		}
 
 		rt5514_dsp_enable(rt5514, false, true);
+
+		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514_dsp_enable(rt5514, false, true);
+			rt5514->load_default_sound_model = false;
+		}
 	}
 
 	return ret;
@@ -1007,6 +1052,11 @@ done:
 		}
 
 		rt5514_dsp_enable(rt5514, false, true);
+
+		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514_dsp_enable(rt5514, false, true);
+			rt5514->load_default_sound_model = false;
+		}
 	}
 
 	return ret;
