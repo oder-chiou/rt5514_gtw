@@ -763,6 +763,56 @@ static int rt5514_ambient_process_payload_get(struct snd_kcontrol *kcontrol,
 	return ret;
 }
 
+static int rt5514_ambient_hotword_version_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	unsigned int version;
+
+	regmap_write(rt5514->i2c_regmap, 0x18002fd0, 0x1 << 28);
+	regmap_write(rt5514->i2c_regmap, 0x18001014, 2);
+
+	msleep(20);
+
+	regmap_read(rt5514->i2c_regmap, 0x18002fd4, &version);
+	ucontrol->value.integer.value[0] = version;
+
+	return 0;
+}
+
+static int rt5514_hotword_dsp_identifier_get(struct snd_kcontrol *kcontrol,
+		unsigned int __user *bytes, unsigned int size)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	struct snd_soc_codec *codec = rt5514->codec;
+	int ret = 0;
+	unsigned int identifier_addr;
+	char uuid[DSP_IDENTIFIER_SIZE];
+
+	if (size != DSP_IDENTIFIER_SIZE)
+		return -EINVAL;
+
+	regmap_write(rt5514->i2c_regmap, 0x18002fd0, 0x2 << 28);
+	regmap_write(rt5514->i2c_regmap, 0x18001014, 2);
+
+	msleep(20);
+
+	regmap_read(rt5514->i2c_regmap, 0x18002fd4, &identifier_addr);
+
+	if ((identifier_addr & 0xfff00000) == 0x4ff00000)
+		rt5514_spi_burst_read(identifier_addr, (u8 *)&uuid,
+			DSP_IDENTIFIER_SIZE);
+
+	if (copy_to_user(bytes, &uuid, DSP_IDENTIFIER_SIZE)) {
+		dev_warn(codec->dev, "%s(), copy_to_user fail\n", __func__);
+		ret = -EFAULT;
+	}
+
+	return ret;
+}
+
 static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 	SOC_DOUBLE_TLV("MIC Boost Volume", RT5514_ANA_CTRL_MICBST,
 		RT5514_SEL_BSTL_SFT, RT5514_SEL_BSTR_SFT, 8, 0, bst_tlv),
@@ -788,6 +838,10 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_ambient_payload_get, rt5514_ambient_payload_put),
 	SND_SOC_BYTES_TLV("Ambient Process Payload", sizeof(RT5514_PAYLOAD),
 		rt5514_ambient_process_payload_get, NULL),
+	SOC_SINGLE_EXT("Ambient Hotword Version", SND_SOC_NOPM, 0, 0x7fffffff,
+		0, rt5514_ambient_hotword_version_get, NULL),
+	SND_SOC_BYTES_TLV("DSP Identifier", DSP_IDENTIFIER_SIZE,
+		rt5514_hotword_dsp_identifier_get, NULL),
 };
 
 /* ADC Mixer*/
