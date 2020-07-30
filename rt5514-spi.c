@@ -49,7 +49,7 @@ struct rt5514_dsp {
 	struct snd_pcm_substream *substream[3];
 	struct snd_soc_component *component;
 	unsigned int buf_base[3], buf_limit[3], buf_rp[3], buf_rp_addr[3];
-	unsigned int stream_flag[2];
+	unsigned int stream_flag[3];
 	unsigned int hotword_ignore_ms, musdet_ignore_ms;
 	size_t buf_size[3], get_size[3], dma_offset[3];
 };
