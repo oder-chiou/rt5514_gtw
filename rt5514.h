@@ -263,7 +263,8 @@
 #define RT5514P_FIRMWARE3	"rt5514p_dsp_fw3.bin"
 #define RT5514P_FIRMWARE4	"rt5514p_dsp_fw4.bin"
 
-#define AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE (128)
+#define AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE	(128)
+#define DSP_IDENTIFIER_SIZE			(40)
 
 /* System Clock Source */
 enum {

@@ -759,7 +759,7 @@ watchdog:
 
 		usleep_range(10000, 10005);
 
-		if (is_watchdog && rt5514->is_streaming){
+		if (is_watchdog && rt5514->is_streaming) {
 			if (rt5514->dsp_adc_enabled) {
 				switch (rt5514->pcm_rate) {
 				case SNDRV_PCM_RATE_48000:
@@ -1260,6 +1260,37 @@ static int rt5514_firmware_version_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt5514_hotword_dsp_identifier_get(struct snd_kcontrol *kcontrol,
+		unsigned int __user *bytes, unsigned int size)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	int ret = 0;
+	unsigned int identifier_addr;
+	char uuid[DSP_IDENTIFIER_SIZE];
+
+	if (size != DSP_IDENTIFIER_SIZE)
+		return -EINVAL;
+
+	regmap_write(rt5514->i2c_regmap, 0x18002fd0, 0x2 << 28);
+	regmap_write(rt5514->i2c_regmap, 0x18001014, 2);
+
+	msleep(20);
+
+	regmap_read(rt5514->i2c_regmap, 0x18002fd4, &identifier_addr);
+
+	if ((identifier_addr & 0xffe00000) == 0x4fe00000)
+		rt5514_spi_burst_read(identifier_addr, (u8 *)&uuid,
+			DSP_IDENTIFIER_SIZE);
+
+	if (copy_to_user(bytes, &uuid, DSP_IDENTIFIER_SIZE)) {
+		dev_warn(component->dev, "%s(), copy_to_user fail\n", __func__);
+		ret = -EFAULT;
+	}
+
+	return ret;
+}
+
 static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 	SOC_DOUBLE_TLV("MIC Boost Volume", RT5514_ANA_CTRL_MICBST,
 		RT5514_SEL_BSTL_SFT, RT5514_SEL_BSTR_SFT, 8, 0, bst_tlv),
@@ -1314,6 +1345,8 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		0, rt5514_ambient_hotword_version_get, NULL),
 	SOC_SINGLE_EXT("DSP Firmware Version", SND_SOC_NOPM, 0, 0x7fffffff,
 		0, rt5514_firmware_version_get, NULL),
+	SND_SOC_BYTES_TLV("DSP Identifier", DSP_IDENTIFIER_SIZE,
+		rt5514_hotword_dsp_identifier_get, NULL),
 };
 
 /* ADC Mixer*/
