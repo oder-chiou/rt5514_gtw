@@ -532,7 +532,15 @@ static int rt5514_dsp_status_check(struct rt5514_priv *rt5514)
 {
 	struct snd_soc_codec *codec = rt5514->codec;
 	unsigned int val, i;
-	
+
+	regmap_read(rt5514->regmap, RT5514_VENDOR_ID2, &val);
+	if (val != RT5514_DEVICE_ID) {
+		dev_err(codec->dev,
+			"Device with ID register %x is not rt5514\n", val);
+		val = -ENODEV;
+		goto reset;
+	}
+
 	for (i = 0; i < 10; i++) {
 		regmap_read(rt5514->i2c_regmap, 0x18001014, &val);
 		if (val == 0)
@@ -541,9 +549,8 @@ static int rt5514_dsp_status_check(struct rt5514_priv *rt5514)
 			usleep_range(10000, 15000);
 	}
 
+reset:
 	if (val) {
-		rt5514->load_default_sound_model = true;
-
 		dev_err(codec->dev, "DSP run failure, reset DSP\n");
 
 		if (rt5514->gpiod_reset) {
@@ -882,8 +889,12 @@ static int rt5514_dsp_voice_wake_up_put(struct snd_kcontrol *kcontrol,
 
 		rt5514_dsp_enable(rt5514, false, false);
 
+		if (rt5514_dsp_status_check(rt5514))
+			rt5514_dsp_enable(rt5514, false, true);
+
 		if (rt5514_dsp_status_check(rt5514)) {
-			rt5514_dsp_enable(rt5514, false, false);
+			rt5514->load_default_sound_model = true;
+			rt5514_dsp_enable(rt5514, false, true);
 			rt5514->load_default_sound_model = false;
 		}
 	} else {
@@ -909,8 +920,12 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
 		rt5514_dsp_enable(rt5514, true, false);
 
+		if (rt5514_dsp_status_check(rt5514))
+			rt5514_dsp_enable(rt5514, false, true);
+
 		if (rt5514_dsp_status_check(rt5514)) {
-			rt5514_dsp_enable(rt5514, true, false);
+			rt5514->load_default_sound_model = true;
+			rt5514_dsp_enable(rt5514, false, true);
 			rt5514->load_default_sound_model = false;
 		}
 	} else {
@@ -1028,6 +1043,7 @@ done:
 		rt5514_dsp_enable(rt5514, false, true);
 
 		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514->load_default_sound_model = true;
 			rt5514_dsp_enable(rt5514, false, true);
 			rt5514->load_default_sound_model = false;
 		}
@@ -1073,6 +1089,7 @@ done:
 		rt5514_dsp_enable(rt5514, false, true);
 
 		if (rt5514_dsp_status_check(rt5514)) {
+			rt5514->load_default_sound_model = true;
 			rt5514_dsp_enable(rt5514, false, true);
 			rt5514->load_default_sound_model = false;
 		}
