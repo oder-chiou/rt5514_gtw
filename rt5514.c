@@ -1180,8 +1180,15 @@ static int rt5514_mem_test_get(struct snd_kcontrol *kcontrol,
 	if (!rt5514->dsp_test)
 		return 0;
 
-	regmap_multi_reg_write(rt5514->i2c_regmap,
-		rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+	if (rt5514->gpiod_reset) {
+		gpiod_set_value(rt5514->gpiod_reset, 0);
+		usleep_range(1000, 2000);
+		gpiod_set_value(rt5514->gpiod_reset, 1);
+	} else {
+		regmap_multi_reg_write(rt5514->i2c_regmap,
+			rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+	}
+
 	rt5514_enable_dsp_prepare(rt5514);
 
 	buf1 = kmalloc(0xb8000, GFP_KERNEL);
@@ -1221,8 +1228,15 @@ static int rt5514_mem_test_get(struct snd_kcontrol *kcontrol,
 
 failed:
 
-	regmap_multi_reg_write(rt5514->i2c_regmap,
-		rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+	if (rt5514->gpiod_reset) {
+		gpiod_set_value(rt5514->gpiod_reset, 0);
+		usleep_range(1000, 2000);
+		gpiod_set_value(rt5514->gpiod_reset, 1);
+	} else {
+		regmap_multi_reg_write(rt5514->i2c_regmap,
+			rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
+	}
+
 	rt5514_dsp_enable(rt5514, false, true);
 	ucontrol->value.integer.value[0] = ret;
 
