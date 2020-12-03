@@ -250,21 +250,29 @@
 #define RT5514_EN_LDO_PLL			(0x1 << 0)
 #define RT5514_EN_LDO_PLL_BIT			0
 
+#define RT5514_DSP_HOTWORD			(0x1 << 0)
+#define RT5514_DSP_HOTWORD_BIT			0
+#define RT5514_DSP_MUSDET			(0x1 << 1)
+#define RT5514_DSP_MUSDET_BIT			1
+#define RT5514_DSP_MUSDET_BREAK			(0x1 << 2)
+#define RT5514_DSP_MUSDET_BREAK_BIT		2
+#define RT5514_DSP_BUFFER			(0x1 << 8)
+#define RT5514_DSP_BUFFER_BIT			8
+
 #define RT5514_PLL_INP_MAX			40000000
 #define RT5514_PLL_INP_MIN			256000
 
 #define RT5514_FIRMWARE1	"rt5514_dsp_fw1.bin"
 #define RT5514_FIRMWARE2	"rt5514_dsp_fw2.bin"
 #define RT5514_FIRMWARE3	"rt5514_dsp_fw3.bin"
-#define RT5514_FIRMWARE4	"rt5514_dsp_fw4.bin"
 
 #define RT5514P_FIRMWARE1	"rt5514p_dsp_fw1.bin"
 #define RT5514P_FIRMWARE2	"rt5514p_dsp_fw2.bin"
 #define RT5514P_FIRMWARE3	"rt5514p_dsp_fw3.bin"
-#define RT5514P_FIRMWARE4	"rt5514p_dsp_fw4.bin"
 
 #define AMBIENT_COMMON_MAX_PAYLOAD_BUFFER_SIZE	(128)
 #define DSP_IDENTIFIER_SIZE			(40)
+#define RT5514_DSP_MODEL_NUM			8
 
 /* System Clock Source */
 enum {
@@ -276,13 +284,6 @@ enum {
 enum {
 	RT5514_PLL_S_MCLK,
 	RT5514_PLL_S_BCLK,
-};
-
-enum {
-	RT5514_DSP_WOV_BOTH,
-	RT5514_DSP_WOV_HOTWORD,
-	RT5514_DSP_WOV_MUSDET,
-	RT5514_DSP_WOV_NON,
 };
 
 enum {
@@ -321,7 +322,7 @@ struct rt5514_priv {
 	struct regmap *i2c_regmap, *regmap;
 	struct clk *mclk;
 	struct gpio_desc *gpiod_reset;
-	const struct firmware *fw[4];
+	const struct firmware *fw[3];
 	int sysclk;
 	int sysclk_src;
 	int lrck;
@@ -329,17 +330,17 @@ struct rt5514_priv {
 	int pll_src;
 	int pll_in;
 	int pll_out;
-	int dsp_enabled, dsp_enabled_last, dsp_test;
+	int dsp_enabled, dsp_model, dsp_test;
 	int dsp_adc_enabled, dsp_buffer_channel;
 	int pcm_rate;
-	u8 *hotword_model_buf, *musdet_model_buf;
-	unsigned int hotword_model_len, musdet_model_len;
+	u8 *model_buf[8];
+	unsigned int model_len[8];
 	RT5514_PAYLOAD payload;
 	bool v_p;
-	char *fw_name[4];
-	unsigned int fw_addr[4];
+	char *fw_name[3];
+	unsigned int fw_addr[10];
 	bool is_streaming;
-	unsigned int sound_model_addr[2];
+	unsigned int sound_model_addr[8];
 	bool load_default_sound_model;
 };
 
