@@ -340,7 +340,6 @@ struct rt5514_priv {
 	char *fw_name[3];
 	unsigned int fw_addr[10];
 	bool is_streaming;
-	unsigned int sound_model_addr[8];
 	bool load_default_sound_model;
 };
 

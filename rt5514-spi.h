@@ -35,6 +35,8 @@
 #define RT5514_IRQ_FLAG			0x18001034
 #define RT5514_DSP_WOV_TYPE		0x18002fac
 #define RT5514_DSP_FUNC			0x18002fb0
+#define RT5514_FW_CTRL1			0x1800102c
+#define RT5514_FW_STATUS0		0x18001030
 
 /* SPI Command */
 enum {

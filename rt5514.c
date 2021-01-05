@@ -544,7 +544,6 @@ static int rt5514_dsp_enable(struct rt5514_priv *rt5514, bool is_adc, bool is_wa
 	struct snd_soc_component *component = rt5514->component;
 	const struct firmware *fw = NULL;
 	unsigned int val, i;
-	bool default_sound_model = false;
 
 	if (is_watchdog)
 		goto watchdog;
@@ -585,9 +584,9 @@ watchdog:
 			fw = rt5514_request_firmware(rt5514, i);
 			if (fw) {
 				if (i == 0)
-					memcpy(&rt5514->sound_model_addr,
-						fw->data,
-						sizeof(unsigned int) * 8);
+					memcpy(&rt5514->fw_addr[2],
+						fw->data + 0x138,
+						sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
 
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 				rt5514_spi_burst_write(rt5514->fw_addr[i], fw->data,
@@ -599,8 +598,6 @@ watchdog:
 			}
 
 		}
-
-		rt5514->fw_addr[2] = rt5514->sound_model_addr[0];
 
 		if (rt5514->load_default_sound_model) {
 			i = RT5514_DSP_MODEL_NUM;
@@ -614,7 +611,6 @@ watchdog:
 		if (i == RT5514_DSP_MODEL_NUM) {
 			fw = rt5514_request_firmware(rt5514, 2);
 			if (fw) {
-				default_sound_model = true;
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 				rt5514_spi_burst_write(rt5514->fw_addr[2],
 					fw->data, fw->size);
@@ -640,7 +636,7 @@ watchdog:
 #else
 					dev_err(component->dev,
 						"No SPI driver for loading firmware\n");
-#endif	
+#endif
 					if (i < 7)
 						rt5514->fw_addr[i+3] = rt5514->fw_addr[i+2] +
 							((rt5514->model_len[i]/8)+1)*8;
@@ -665,30 +661,19 @@ watchdog:
 			}
 		}
 
-		if (default_sound_model) {
-			for (i = 0; i < RT5514_DSP_MODEL_NUM; i++) {
-				if (!(rt5514->dsp_model & (0x1 << i)))
-					rt5514->sound_model_addr[i] = 0;
-			}
-
-#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)			
-			rt5514_spi_burst_write(rt5514->fw_addr[0],
-				(const u8 *)&rt5514->sound_model_addr,
-				sizeof(unsigned int) * 8);
-#else
-			dev_err(component->dev,
-				"No SPI driver for loading firmware\n");
-#endif
-		} else {
-#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
-			rt5514_spi_burst_write(rt5514->fw_addr[0],
-				(const u8 *)&rt5514->fw_addr[2],
-				sizeof(unsigned int) * 8);
-#else
-			dev_err(component->dev,
-				"No SPI driver for loading firmware\n");
-#endif
+		for (i = 0; i < RT5514_DSP_MODEL_NUM; i++) {
+			if (!(rt5514->dsp_model & (0x1 << i)))
+				rt5514->fw_addr[i+2] = 0;
 		}
+
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+		rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
+			(const u8 *)&rt5514->fw_addr[2],
+			sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
+#else
+		dev_err(component->dev,
+			"No SPI driver for loading firmware\n");
+#endif
 
 		if (rt5514->pdata.dsp_40mhz) {
 			/* dsp clk=mux_out (40M) */
@@ -845,22 +830,152 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	const struct firmware *fw = NULL;
+	int dsp_model_last = rt5514->dsp_model;
+	unsigned int val, i, changed_model;
 
-	if (!strcmp("DSP Voice Wake Up", kcontrol->id.name))
+	if (!strcmp("DSP Voice Wake Up", kcontrol->id.name)) {
 		rt5514->dsp_model = (rt5514->dsp_model & ~RT5514_DSP_HOTWORD) |
 			(ucontrol->value.integer.value[0] << RT5514_DSP_HOTWORD_BIT);
+		changed_model = RT5514_DSP_HOTWORD_BIT;
+	}
 
-	if (!strcmp("DSP Music Detect", ucontrol->id.name))
+	if (!strcmp("DSP Music Detect", ucontrol->id.name)) {
 		rt5514->dsp_model = (rt5514->dsp_model & ~RT5514_DSP_MUSDET) |
 			(ucontrol->value.integer.value[0] << RT5514_DSP_MUSDET_BIT);
+		changed_model = RT5514_DSP_MUSDET_BIT;
+	}
 
-	if (!strcmp("DSP Music Detect Break", ucontrol->id.name))
+	if (!strcmp("DSP Music Detect Break", ucontrol->id.name)) {
 		rt5514->dsp_model = (rt5514->dsp_model & ~RT5514_DSP_MUSDET_BREAK) |
 			(ucontrol->value.integer.value[0] << RT5514_DSP_MUSDET_BREAK_BIT);
+		changed_model = RT5514_DSP_MUSDET_BREAK_BIT;
+	}
 
-	if (!strcmp("DSP Buffer", ucontrol->id.name))
+	if (!strcmp("DSP Buffer", ucontrol->id.name)) {
 		rt5514->dsp_model = (rt5514->dsp_model & ~RT5514_DSP_BUFFER) |
 			(ucontrol->value.integer.value[0] << RT5514_DSP_BUFFER_BIT);
+		changed_model = RT5514_DSP_BUFFER_BIT;
+	}
+
+	if ((rt5514->dsp_model & (0x1 << changed_model)) ==
+		(dsp_model_last & (0x1 << changed_model)))
+		return 0;
+
+	if (ucontrol->value.integer.value[0] == 0)
+		rt5514->fw_addr[changed_model+2] = 0;
+
+	if (rt5514->dsp_enabled) {
+		if (!rt5514->dsp_adc_enabled && !rt5514->is_streaming) {
+			if (rt5514->dsp_model && !dsp_model_last) {
+				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+					RT5514_DSP_FUNC_WOV);
+				regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+			} else if (!rt5514->dsp_model) {
+				regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+					RT5514_DSP_FUNC_SUSPEND);
+				regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+
+				return 0;
+			}
+		} else if (rt5514->is_streaming && !rt5514->dsp_model) {
+			dev_warn(component->dev, "Unsupport : %d %d %d\n",
+				rt5514->dsp_enabled, rt5514->dsp_adc_enabled,
+				rt5514->dsp_model);
+			return 0;
+		}
+
+		for (i = changed_model; i < RT5514_DSP_MODEL_NUM; i++)
+			rt5514->fw_addr[i+2] = 0;
+
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+		rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
+			(const u8 *)&rt5514->fw_addr[2],
+			sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
+#else
+		dev_err(component->dev,
+			"No SPI driver for loading firmware\n");
+#endif
+
+		regmap_write(rt5514->i2c_regmap, RT5514_FW_CTRL1, 1);
+		regmap_read(rt5514->i2c_regmap, RT5514_FW_STATUS0, &val);
+		for (i = 0; i < 100 && (!(val & 0x8000)); i++) {
+			regmap_read(rt5514->i2c_regmap, RT5514_FW_STATUS0, &val);
+			msleep(10);
+		}
+
+		fw = rt5514_request_firmware(rt5514, 0);
+		if (fw)
+			memcpy(&rt5514->fw_addr[2], fw->data + 0x138,
+				sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
+
+		for (i = 0; i < RT5514_DSP_MODEL_NUM; i++) {
+			if (rt5514->model_buf[i] && rt5514->model_len[i])
+				break;
+		}
+
+		if (i == RT5514_DSP_MODEL_NUM) {
+			for (i = 0; i < RT5514_DSP_MODEL_NUM; i++) {
+				if (!(rt5514->dsp_model & (0x1 << i)))
+					rt5514->fw_addr[i+2] = 0;
+			}
+
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)			
+			rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
+				(const u8 *)&rt5514->fw_addr[2],
+				sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
+#else
+			dev_err(component->dev,
+				"No SPI driver for loading firmware\n");
+#endif
+		} else {
+			for (i = 0; i < RT5514_DSP_MODEL_NUM; i++) {
+				if ((rt5514->dsp_model & (0x1 << i))
+					&& rt5514->model_buf[i] && rt5514->model_len[i]) {
+					int ret;
+
+					if (i >= changed_model) {
+#if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
+						ret = rt5514_spi_burst_write(rt5514->fw_addr[i+2],
+							rt5514->model_buf[i],
+							rt5514->model_len[i]);
+
+						if (ret) {
+							dev_err(component->dev,
+								"Model load failed %d\n", ret);
+							return ret;
+						}
+#else
+						dev_err(component->dev,
+							"No SPI driver for loading firmware\n");
+#endif
+					}
+
+					if (i < 7)
+						rt5514->fw_addr[i+3] = rt5514->fw_addr[i+2] +
+							((rt5514->model_len[i]/8)+1)*8;
+				} else {
+					if (i < 7)
+						rt5514->fw_addr[i+3] = rt5514->fw_addr[i+2];
+					rt5514->fw_addr[i+2] = 0;
+				}
+			}
+
+			rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
+				(const u8 *)&rt5514->fw_addr[2],
+				sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
+		}
+
+		regmap_write(rt5514->i2c_regmap, RT5514_FW_CTRL1, 0);
+		for (i = 0; i < 100 &&  (val & 0x8000); i++) {
+			regmap_read(rt5514->i2c_regmap, RT5514_FW_STATUS0, &val);
+			msleep(10);
+
+		}
+	}
+
+	regmap_write(rt5514->i2c_regmap,
+		RT5514_DSP_WOV_TYPE, rt5514->dsp_model & 0xff);
 
 	return 0;
 }
@@ -996,25 +1111,6 @@ static int rt5514_model_put(struct snd_kcontrol *kcontrol,
 		ret = -EFAULT;
 done:
 	rt5514->model_len[i] = (ret ? 0 : size);
-
-	if (rt5514->dsp_enabled || rt5514->dsp_adc_enabled) {
-		if (rt5514->gpiod_reset) {
-			gpiod_set_value(rt5514->gpiod_reset, 0);
-			usleep_range(1000, 2000);
-			gpiod_set_value(rt5514->gpiod_reset, 1);
-		} else {
-			regmap_multi_reg_write(rt5514->i2c_regmap,
-				rt5514_i2c_patch, ARRAY_SIZE(rt5514_i2c_patch));
-		}
-
-		rt5514_dsp_enable(rt5514, false, true);
-
-		if (rt5514_dsp_status_check(rt5514)) {
-			rt5514->load_default_sound_model = true;
-			rt5514_dsp_enable(rt5514, false, true);
-			rt5514->load_default_sound_model = false;
-		}
-	}
 
 	return ret;
 }
