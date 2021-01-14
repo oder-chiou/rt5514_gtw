@@ -75,5 +75,6 @@ int rt5514_spi_burst_read(unsigned int addr, u8 *rxbuf, size_t len);
 int rt5514_spi_burst_write(u32 addr, const u8 *txbuf, size_t len);
 int rt5514_spi_read(unsigned int addr, unsigned int *val);
 int rt5514_spi_write(unsigned int addr, unsigned int val);
+bool rt5514_dump_dbg_info(void);
 
 #endif /* __RT5514_SPI_H__ */

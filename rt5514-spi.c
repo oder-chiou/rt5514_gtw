@@ -41,6 +41,8 @@
 static struct spi_device *rt5514_spi;
 static struct mutex spi_lock;
 
+struct rt5514_dsp *g_rt5514_dsp;
+
 struct rt5514_dsp {
 	struct device *dev;
 	struct delayed_work start_work, adc_work, copy_work_0, copy_work_1,
@@ -238,6 +240,56 @@ static bool rt5514_watchdog_dbg_info(struct rt5514_dsp *rt5514_dsp)
 
 	return true;
 }
+
+bool rt5514_dump_dbg_info(void)
+{
+	struct rt5514_dsp *rt5514_dsp = g_rt5514_dsp;
+	RT5514_DBGBUF_MEM dbgbuf;
+	unsigned int i, val[5];
+
+	regmap_read(rt5514_g_i2c_regmap, 0x18002ff0, &val[0]);
+	if (val[0] == 0x80)
+		val[1] = 0x4fe00000;
+	else
+		val[1] = 0x4ff60000;
+
+	rt5514_spi_burst_read(val[1], (u8 *)&dbgbuf, RT5514_DBG_BUF_SIZE);
+
+	dev_err(rt5514_dsp->dev, "[DSP Dump]");
+	for (i = 0; i < RT5514_DBG_BUF_CNT; i++)
+		dev_err(&rt5514_spi->dev, "[%02x][%06x][%08x]\n",
+			dbgbuf.unit[i].id, dbgbuf.unit[i].ts, dbgbuf.unit[i].val);
+	dev_err(rt5514_dsp->dev, "[%08x][%08x]\n",
+		dbgbuf.reserve, dbgbuf.idx);
+
+	dev_err(rt5514_dsp->dev, "[Reg Dump]");
+	for (i = 0; i < ARRAY_SIZE(rt5514_regdump_table1); i+=5) {
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i], &val[0]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i + 1], &val[1]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i + 2], &val[2]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i + 3], &val[3]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i + 4], &val[4]);
+		dev_err(rt5514_dsp->dev, "[%08x][%08x][%08x][%08x][%08x]",
+			val[0], val[1], val[2], val[3], val[4]);
+	}
+
+	dev_err(rt5514_dsp->dev, "==================================================");
+
+	regmap_write(rt5514_g_i2c_regmap, 0xfafafafa, 0x00000001);
+	for (i = 0; i < ARRAY_SIZE(rt5514_regdump_table2); i+=5) {
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table2[i], &val[0]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table2[i + 1], &val[1]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table2[i + 2], &val[2]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table2[i + 3], &val[3]);
+		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table2[i + 4], &val[4]);
+		dev_err(rt5514_dsp->dev, "[%08x][%08x][%08x][%08x][%08x]",
+			val[0], val[1], val[2], val[3], val[4]);
+	}
+	regmap_write(rt5514_g_i2c_regmap, 0xfafafafa, 0x00000000);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(rt5514_dump_dbg_info);
 
 static void rt5514_spi_copy_work_0(struct work_struct *work)
 {
@@ -901,6 +953,7 @@ static int rt5514_spi_pcm_probe(struct snd_soc_component *component)
 
 	rt5514_dsp = devm_kzalloc(component->dev, sizeof(*rt5514_dsp),
 			GFP_KERNEL);
+	g_rt5514_dsp = rt5514_dsp;
 
 	rt5514_pcm_parse_dp(rt5514_dsp, &rt5514_spi->dev);
 

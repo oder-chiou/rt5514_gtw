@@ -272,6 +272,7 @@ static int rt5514_dsp_get(struct snd_kcontrol *kcontrol,
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = rt5514->dsp_enabled;
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	return 0;
 }
@@ -297,6 +298,7 @@ static int rt5514_dsp_model_get(struct snd_kcontrol *kcontrol,
 	if (!strcmp("DSP Buffer", ucontrol->id.name))
 		ucontrol->value.integer.value[0] =
 			(rt5514->dsp_model & RT5514_DSP_BUFFER) >> RT5514_DSP_BUFFER_BIT;
+	printk(">>>>> TRACE [%s]->(%d) %s %ld <<<<<\n", __FUNCTION__, __LINE__, kcontrol->id.name, ucontrol->value.integer.value[0]);
 
 	return 0;
 }
@@ -312,6 +314,7 @@ static int rt5514_dsp_stream_flag_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	switch (ucontrol->value.integer.value[0]) {
 	case RT5514_DSP_STREAM_HOTWORD:
@@ -363,6 +366,7 @@ static int rt5514_dsp_frame_flag_get(struct snd_kcontrol *kcontrol,
 	}
 
 	ucontrol->value.integer.value[0] = !!(value_spi - value_i2c);
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	return 0;
 }
@@ -625,6 +629,8 @@ watchdog:
 					&& rt5514->model_buf[i] && rt5514->model_len[i]) {
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 					int ret;
+					printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
+
 					ret = rt5514_spi_burst_write(rt5514->fw_addr[i+2],
 						rt5514->model_buf[i],
 						rt5514->model_len[i]);
@@ -665,6 +671,9 @@ watchdog:
 			if (!(rt5514->dsp_model & (0x1 << i)))
 				rt5514->fw_addr[i+2] = 0;
 		}
+
+		for (i = 0; i < RT5514_DSP_MODEL_NUM; i++)
+			printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
 
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 		rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
@@ -800,9 +809,12 @@ static int rt5514_dsp_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	RT5514_DSP_MEM dsp_mem;
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	if (ucontrol->value.integer.value[0] == rt5514->dsp_enabled)
 		return 0;
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	rt5514->dsp_enabled = ucontrol->value.integer.value[0];
 
@@ -833,6 +845,7 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 	const struct firmware *fw = NULL;
 	int dsp_model_last = rt5514->dsp_model;
 	unsigned int val, i, changed_model;
+	printk(">>>>> TRACE [%s]->(%d) %s %ld <<<<<\n", __FUNCTION__, __LINE__, kcontrol->id.name, ucontrol->value.integer.value[0]);
 
 	if (!strcmp("DSP Voice Wake Up", kcontrol->id.name)) {
 		rt5514->dsp_model = (rt5514->dsp_model & ~RT5514_DSP_HOTWORD) |
@@ -888,6 +901,9 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 		for (i = changed_model; i < RT5514_DSP_MODEL_NUM; i++)
 			rt5514->fw_addr[i+2] = 0;
 
+		for (i = 0; i < RT5514_DSP_MODEL_NUM; i++)
+			printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
+
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 		rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
 			(const u8 *)&rt5514->fw_addr[2],
@@ -920,6 +936,8 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 					rt5514->fw_addr[i+2] = 0;
 			}
 
+			for (i = 0; i < RT5514_DSP_MODEL_NUM; i++)
+				printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)			
 			rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
 				(const u8 *)&rt5514->fw_addr[2],
@@ -935,6 +953,7 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 					int ret;
 
 					if (i >= changed_model) {
+						printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
 #if IS_ENABLED(CONFIG_SND_SOC_RT5514_SPI)
 						ret = rt5514_spi_burst_write(rt5514->fw_addr[i+2],
 							rt5514->model_buf[i],
@@ -961,6 +980,10 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 				}
 			}
 
+
+			for (i = 0; i < RT5514_DSP_MODEL_NUM; i++)
+				printk(">>>>> TRACE [%s]->(%d) %d = %08x <<<<<\n", __FUNCTION__, __LINE__, i, rt5514->fw_addr[i+2]);
+
 			rt5514_spi_burst_write(rt5514->fw_addr[0] + 0x138,
 				(const u8 *)&rt5514->fw_addr[2],
 				sizeof(unsigned int) * RT5514_DSP_MODEL_NUM);
@@ -977,6 +1000,9 @@ static int rt5514_dsp_model_put(struct snd_kcontrol *kcontrol,
 	regmap_write(rt5514->i2c_regmap,
 		RT5514_DSP_WOV_TYPE, rt5514->dsp_model & 0xff);
 
+	regmap_read(rt5514->i2c_regmap, RT5514_DSP_WOV_TYPE, &val);
+	printk(">>>>> TRACE [%s]->(%d) IRQ Mask = %08x <<<<<\n", __FUNCTION__, __LINE__, val);
+
 	return 0;
 }
 
@@ -986,9 +1012,11 @@ static int rt5514_dsp_adc_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	if (ucontrol->value.integer.value[0] == rt5514->dsp_adc_enabled)
 		return 0;
+	printk(">>>>> TRACE [%s]->(%d) <<<<<\n", __FUNCTION__, __LINE__);
 
 	if (!rt5514->is_streaming) {
 		rt5514->dsp_adc_enabled = ucontrol->value.integer.value[0];
@@ -1019,6 +1047,7 @@ static int rt5514_dsp_adc_get(struct snd_kcontrol *kcontrol,
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = rt5514->dsp_adc_enabled;
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	return 0;
 }
@@ -1028,10 +1057,13 @@ static int rt5514_dsp_func_put(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
-	regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
-		ucontrol->value.integer.value[0]);
-	regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+	if (ucontrol->value.integer.value[0] >= 10) {
+		regmap_write(rt5514->i2c_regmap, RT5514_DSP_FUNC,
+			ucontrol->value.integer.value[0] - 10);
+		regmap_write(rt5514->i2c_regmap, 0x18001014, 1);
+	}
 
 	return 0;
 }
@@ -1039,6 +1071,10 @@ static int rt5514_dsp_func_put(struct snd_kcontrol *kcontrol,
 static int rt5514_dsp_func_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
+
+	rt5514_dump_dbg_info();
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
+
 	return 0;
 }
 
@@ -1059,12 +1095,15 @@ static int rt5514_hw_reset_set(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 
-	if (rt5514->gpiod_reset) {
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
+
+	if (rt5514->gpiod_reset && (ucontrol->value.integer.value[0] == 2)) {
 		gpiod_set_value(rt5514->gpiod_reset, 0);
 		usleep_range(1000, 2000);
 		gpiod_set_value(rt5514->gpiod_reset, 1);
 		rt5514_dsp_enable(rt5514, false, true);
 	}
+	printk(">>>>> TRACE [%s]->(%d) <<<<<\n", __FUNCTION__, __LINE__);
 
 	return 0;
 }
@@ -1076,6 +1115,7 @@ static int rt5514_hw_reset_get(struct snd_kcontrol *kcontrol,
 	struct rt5514_priv *rt5514 = snd_soc_component_get_drvdata(component);
 
 	ucontrol->value.integer.value[0] = !!rt5514->gpiod_reset;
+	printk(">>>>> TRACE [%s]->(%d) %ld <<<<<\n", __FUNCTION__, __LINE__, ucontrol->value.integer.value[0]);
 
 	return 0;
 }
@@ -1366,7 +1406,7 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 
 	SOC_SINGLE_EXT("DSP ADC", SND_SOC_NOPM, 0, 1, 0,
 		rt5514_dsp_adc_get, rt5514_dsp_adc_put),
-	SOC_SINGLE_EXT("DSP FUNC", SND_SOC_NOPM, 0, 5, 0,
+	SOC_SINGLE_EXT("DSP FUNC", SND_SOC_NOPM, 0, 18, 0,
 		rt5514_dsp_func_get, rt5514_dsp_func_put),
 	SND_SOC_BYTES_TLV("Hotword Model", 0xf0000, NULL,
 		rt5514_model_put),
@@ -1387,7 +1427,7 @@ static const struct snd_kcontrol_new rt5514_snd_controls[] = {
 		rt5514_dsp_buf_ch_get, rt5514_dsp_buf_ch_put),
 	SOC_SINGLE_EXT("HW Version", SND_SOC_NOPM, 0, 1, 0,
 		rt5514_hw_ver_get, NULL),
-	SOC_SINGLE_EXT("HW Reset", SND_SOC_NOPM, 0, 1, 0,
+	SOC_SINGLE_EXT("HW Reset", SND_SOC_NOPM, 0, 2, 0,
 		rt5514_hw_reset_get, rt5514_hw_reset_set),
 	SND_SOC_BYTES_TLV("Ambient Payload", sizeof(RT5514_PAYLOAD),
 		rt5514_ambient_payload_get, rt5514_ambient_payload_put),
