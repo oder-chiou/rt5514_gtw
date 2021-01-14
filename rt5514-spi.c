@@ -262,6 +262,16 @@ bool rt5514_dump_dbg_info(void)
 	dev_err(rt5514_dsp->dev, "[%08x][%08x]\n",
 		dbgbuf.reserve, dbgbuf.idx);
 
+	for (i = 0; i < (RT5514_DBG_BUF_SIZE/4); i++)
+		regmap_read(rt5514_g_i2c_regmap, val[1]+(i*4), ((unsigned int *)&dbgbuf) + i);
+
+	dev_err(rt5514_dsp->dev, "[DSP Dump]");
+	for (i = 0; i < RT5514_DBG_BUF_CNT; i++)
+		dev_err(&rt5514_spi->dev, "[%02x][%06x][%08x]\n",
+			dbgbuf.unit[i].id, dbgbuf.unit[i].ts, dbgbuf.unit[i].val);
+	dev_err(rt5514_dsp->dev, "[%08x][%08x]\n",
+		dbgbuf.reserve, dbgbuf.idx);
+
 	dev_err(rt5514_dsp->dev, "[Reg Dump]");
 	for (i = 0; i < ARRAY_SIZE(rt5514_regdump_table1); i+=5) {
 		regmap_read(rt5514_g_i2c_regmap, rt5514_regdump_table1[i], &val[0]);
