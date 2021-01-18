@@ -592,7 +592,7 @@ static void rt5514_spi_copy_work_3(struct work_struct *work)
 	if (rt5514_dsp->get_size[3] >= rt5514_dsp->buf_size[3]) {
 		rt5514_spi_burst_read(rt5514_dsp->buf_rp_addr[3], (u8 *)&buf,
 			sizeof(buf));
-		cur_wp = buf[0] | buf[3] << 8 | buf[2] << 16 | buf[3] << 24;
+		cur_wp = buf[0] | buf[1] << 8 | buf[2] << 16 | buf[3] << 24;
 		if ((cur_wp & 0xffe00000) != 0x4fe00000) {
 			schedule_delayed_work(&rt5514_dsp->copy_work_3,
 				msecs_to_jiffies(50));
